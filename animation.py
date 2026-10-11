@@ -57,7 +57,18 @@ def display_regions(width: int, height: int, mode: str, sentence_index: int = 0)
     return [QRectF(pad, pad, width - 2 * pad, height - 2 * pad)]
 
 
-def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAULT_FONT_FAMILY):
+def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAULT_FONT_FAMILY,
+                  translation_start: int | None = None):
+    if translation_start is not None:
+        original, original_w, original_h = _glyph_layout(text[:translation_start - 1], pixels, max_width, family)
+        translated, translated_w, translated_h = _glyph_layout(
+            text[translation_start:], max(8, round(pixels * .75)), max_width, family)
+        gap = max(6, pixels * .3)
+        glyphs = [replace(glyph, baseline=glyph.baseline - (translated_h + gap) / 2) for glyph in original]
+        glyphs += [replace(glyph, baseline=glyph.baseline + (original_h + gap) / 2,
+                           index=glyph.index + len(original), text_start=glyph.text_start + translation_start,
+                           text_end=glyph.text_end + translation_start) for glyph in translated]
+        return glyphs, max(original_w, translated_w), original_h + gap + translated_h
     font = lyric_font(family, pixels)
     metrics = QFontMetricsF(font)
     rows = [[]]
@@ -100,20 +111,21 @@ def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAUL
 
 
 def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRectF],
-                 prefs: Preferences) -> LineLayout | None:
+                 prefs: Preferences, translation_start: int | None = None) -> LineLayout | None:
     rng = random.Random(seed)
     regions = list(regions)
     rng.shuffle(regions)
     fallback = None
     for region in regions:
-        angle = 0 if prefs.region == "top_alternate" else rng.uniform(-prefs.angle, prefs.angle)
+        angle = rng.uniform(-prefs.angle, prefs.angle)
         for pixels in range(prefs.font_size, 9, -1):
             reserve = 50
             if prefs.animation_style != "classic":
                 reserve += prefs.jump * .6 + 8
                 if prefs.animation_style.startswith("fall_"):
                     reserve += prefs.fall_distance * pixels / 32 * abs(math.sin(math.radians(angle)))
-            glyphs, width, height = _glyph_layout(text, pixels, max(10, region.width() - reserve), prefs.font_family)
+            glyphs, width, height = _glyph_layout(text, pixels, max(10, region.width() - reserve),
+                                                prefs.font_family, translation_start)
             # Include stroke, character scale, jumping and fade-out drift.
             stroke, glow = effect_geometry(pixels, prefs.text_style, prefs.glow_variant)
             margin = stroke + glow + 4
@@ -159,5 +171,5 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
             break
     if fallback is None and prefs.animation_style != "classic" and prefs.angle:
         # Very narrow bands with long imported glyphs may only fit without sentence tilt.
-        return build_layout(text, seed, regions, occupied, replace(prefs, angle=0))
+        return build_layout(text, seed, regions, occupied, replace(prefs, angle=0), translation_start)
     return fallback  # Overlay drops conflicting older instances in this rare case.

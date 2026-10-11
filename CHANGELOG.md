@@ -2,6 +2,27 @@
 
 每次改动按日期追加记录，包含改动目的、涉及文件、测试与验证结果、影响或已知限制。
 
+## 2026-10-11：恢复原版倾斜并缩小下方译文
+
+### 改动
+
+- `animation.py` 取消顶部交替模式强制水平的覆盖，重新使用原版随机倾斜及用户的角度设置。继续用旋转后的完整边界限制顶部区域，原文与译文整组一起倾斜、跳动、淡入淡出。
+- `overlay.py` 将真实译文起始位置传入字形排版；`animation.py` 保持原文字号，下方译文使用约 75% 字号并留出行距。保留原文多行、独立折行和逐字索引；没有译文时不缩小原文。
+- 更新 `controls.py` 提示、README 和 `tests/test_top_bilingual.py`，覆盖倾斜角度关闭／范围／正负随机、双语字号比例、多行原文、译文索引及旋转后的边界。
+
+### 测试与验证
+
+- 全量 `.venv/Scripts/python.exe -m unittest discover -s tests -v`：313 项，311 通过、2 项平台检查跳过，`artifacts/tilt-bilingual-size-tests.txt`。
+- Windows 原生左右双语截图已检查：原文较大、译文较小，整组倾斜且不超出顶部区域。
+- `main.py --smoke --report-dir artifacts/tilt-size-source-smoke`：75 项检查结果全部通过；PyInstaller 重建成功，`artifacts/tilt-size-build.txt`。
+- 实际 `启动.bat -Smoke -ReportDirectory .../artifacts/tilt-size-package-smoke`：原生控制面板可见，成品 75 项检查结果全部通过，包含本轮帧耗时检查。
+- 已安装到 `D:/DancingLyrics-NetEase`。确认全部内部依赖与已安装版本一致后仅替换 EXE；旧 EXE 备份到 `.backups/FloatingLyrics-before-tilt-size-20261011.exe`。EXE 与构建文件 SHA-256 一致，现有设置及连接配置哈希保持不变。
+
+### 影响与限制
+
+- 保留用户现有原文字号、倾斜角度、主题及动画参数；左上／右上交替和双语同步继续生效。译文相对字号为约 75%，不新增设置项。
+- 旋转后极长歌词仍可能使用原版的自动缩小字号和空间不足回退；未执行长时间稳定性测试。
+
 ## 2026-10-11：本机双语上下显示与顶部左右交替
 
 ### 改动

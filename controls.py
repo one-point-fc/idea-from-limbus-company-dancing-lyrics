@@ -719,7 +719,7 @@ class ControlPanel(QWidget):
         self.font_status.setWordWrap(True)
         self.translation_checkbox = QCheckBox("原文与中文翻译上下同时显示")
         self.translation_checkbox.setChecked(self.prefs.prefer_translation)
-        self.translation_checkbox.setToolTip("原文在上、译文在下；无翻译时只显示原文。保留原文逐字强调，中文译文按整句同步。")
+        self.translation_checkbox.setToolTip("原文在上、较小的译文在下（原文字号的75%）；无翻译时只显示原文。整组保留倾斜和动画，原文逐字强调、译文整句同步。")
         self.translation_checkbox.toggled.connect(lambda value: self._set_preference("prefer_translation", value))
         self._reload_fonts()
         self.font_combo.currentIndexChanged.connect(self._font_selected)

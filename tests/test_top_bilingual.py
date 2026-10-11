@@ -20,7 +20,7 @@ class TopBilingualTests(unittest.TestCase):
                                  LyricLine(5000, "相同", (), "相同")], [])
         lines = display_document(document, True).lines
         self.assertEqual([line.text for line in lines], ["Hello\n你好", "No translation", "相同"])
-        glyphs, _, _ = _glyph_layout(lines[0].text, 32, 700)
+        glyphs, _, _ = _glyph_layout(lines[0].text, 32, 700, translation_start=6)
         original = [g for g in glyphs if g.text_start < 5]
         translated = [g for g in glyphs if g.text_start > 5]
         self.assertLess(max(g.baseline for g in original), min(g.baseline for g in translated))
@@ -35,12 +35,39 @@ class TopBilingualTests(unittest.TestCase):
                 for index in range(4):
                     regions = display_regions(width, height, prefs.region, index)
                     layout = build_layout("This is the original lyric\n这是对应的中文歌词翻译", 17,
-                                          regions, [], prefs)
+                                          regions, [], prefs, translation_start=len("This is the original lyric") + 1)
                     self.assertIsNotNone(layout)
                     self.assertTrue(regions[0].adjusted(-1e-6, -1e-6, 1e-6, 1e-6).contains(layout.bounds))
                     self.assertLessEqual(layout.bounds.bottom(), height * .32 + 0.01)
-                    self.assertEqual(layout.angle, 0)
+                    self.assertNotEqual(layout.angle, 0)
+                    self.assertLessEqual(abs(layout.angle), prefs.angle)
                     self.assertEqual(layout.center.x() < width / 2, index % 2 == 0)
+
+    def test_top_bilingual_uses_original_tilt_control(self):
+        for maximum in (0, 5, 15, 25):
+            prefs = Preferences(region="top_alternate", angle=maximum, font_size=20, jump=20)
+            angles = []
+            for seed in range(6):
+                regions = display_regions(1536, 960, prefs.region, seed)
+                layout = build_layout("Original lyric\n中文翻译", seed, regions, [], prefs, translation_start=15)
+                self.assertIsNotNone(layout)
+                self.assertLessEqual(abs(layout.angle), maximum)
+                self.assertTrue(regions[0].adjusted(-1e-6, -1e-6, 1e-6, 1e-6).contains(layout.bounds))
+                angles.append(layout.angle)
+            if maximum:
+                self.assertLess(min(angles), 0)
+                self.assertGreater(max(angles), 0)
+            else:
+                self.assertEqual(angles, [0] * 6)
+
+    def test_translation_is_smaller_and_multiline_original_keeps_its_size(self):
+        glyphs, _, _ = _glyph_layout("中\n中\n中", 32, 700, translation_start=4)
+        self.assertEqual(glyphs[0].path.boundingRect().height(), glyphs[1].path.boundingRect().height())
+        ratio = glyphs[2].path.boundingRect().height() / glyphs[0].path.boundingRect().height()
+        self.assertAlmostEqual(ratio, .75, delta=.03)
+        self.assertGreater(glyphs[2].baseline, glyphs[1].baseline)
+        self.assertEqual((glyphs[2].text_start, glyphs[2].text_end), (4, 5))
+        self.assertEqual([g.index for g in glyphs], [0, 1, 2])
 
     def test_overlay_skips_blank_markers_and_seek_keeps_side(self):
         player = NeteasePlayer()

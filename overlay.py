@@ -147,7 +147,10 @@ class LyricsOverlay(QWidget):
             # Empty instrumental markers must not consume a left/right turn.
             sentence_index = sum(bool(line.text.strip()) for line in self.timeline.lines[:item.index])
             regions = display_regions(self.width(), self.height(), self.prefs.region, sentence_index)
-            layout = build_layout(item.text, self.seed + item.index * 7919, regions, occupied, self.prefs)
+            original = self.document.lines[item.index]
+            translation_start = len(original.text) + 1 if item.text != original.text else None
+            layout = build_layout(item.text, self.seed + item.index * 7919, regions, occupied,
+                                  self.prefs, translation_start)
             if layout:
                 self.layouts[item.index] = layout
         energy = self.player.energy_at(position)
