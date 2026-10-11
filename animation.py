@@ -124,7 +124,8 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
     fallback = None
     for region in regions:
         angle = rng.uniform(-prefs.angle, prefs.angle)
-        for pixels in range(prefs.font_size, 9, -1):
+        sizes = (prefs.font_size,) if prefs.region == "custom" else range(prefs.font_size, 9, -1)
+        for pixels in sizes:
             reserve = 50
             if prefs.animation_style != "classic":
                 reserve += prefs.jump * .6 + 8

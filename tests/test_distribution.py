@@ -297,7 +297,8 @@ class ReleaseTests(unittest.TestCase):
                         if player == "netease":
                             tutorial = archive.read(f"{prefix}/安装教程.html").decode("utf-8")
                             for phrase in ("左上", "右上", "左中", "右中", "左下", "右下",
-                                           "自动对齐网易云歌词时间", "保留 .state", "安装网易云联动.bat"):
+                                           "自动对齐网易云歌词时间", "保留 .state", "安装网易云联动.bat",
+                                           "缩放范围保留设置的字号"):
                                 self.assertIn(phrase, tutorial)
                         self.assertEqual(any("/plugins/netease/" in name for name in names), player == "netease")
                         self.assertEqual(any(name.endswith("native/qqmusic_smtc.ps1") for name in names), player == "qqmusic")

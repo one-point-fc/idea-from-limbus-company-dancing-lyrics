@@ -21,6 +21,25 @@ APP = QApplication.instance() or QApplication([])
 
 
 class CustomRegionsTests(unittest.TestCase):
+    def test_resizing_custom_regions_preserves_original_and_translation_font_sizes(self):
+        from PySide6.QtCore import QRectF
+        from dataclasses import replace
+        prefs = Preferences(region="custom", font_size=32, angle=0, jump=0, text_style="solid")
+        text = "Original lyric text\n中文翻译"
+        layouts = [build_layout(text, 12, [QRectF(0, 0, width, 800)], [], prefs, text.index("\n")+1, "top_left")
+                   for width in (800, 400, 240)]
+        for layout in layouts:
+            self.assertIsNotNone(layout)
+            self.assertEqual(layout.font_size, prefs.font_size)
+            self.assertEqual([glyph.path.boundingRect() for glyph in layout.glyphs],
+                             [glyph.path.boundingRect() for glyph in layouts[0].glyphs])
+        self.assertGreater(len({g.baseline for g in layouts[-1].glyphs}),
+                           len({g.baseline for g in layouts[0].glyphs}))
+        # A box that only fits after shrinking must no longer silently change the font.
+        tiny = QRectF(0, 0, 100, 70)
+        self.assertIsNone(build_layout("字", 12, [tiny], [], prefs, anchor="top_left"))
+        self.assertIsNotNone(build_layout("字", 12, [tiny], [], replace(prefs, region="edges")))
+
     def test_six_regions_roundtrip_clamping_and_preset_independence(self):
         prefs = Preferences(region="custom", selected_regions="bottom_left,top_right")
         prefs.region_boxes = json.dumps({"top_right": [88, 90, 30, 30]})

@@ -90,7 +90,7 @@ class RegionEditor(QDialog):
         self.boxes = region_boxes(prefs.region_boxes)
         self.enabled = set(selected_regions(prefs.selected_regions))
         layout = QVBoxLayout(self)
-        hint = QLabel("勾选可出现的位置，歌词按勾选位置轮流出现。\n拖动画框移动范围，拖右下角缩放；也可在下方输入百分比。")
+        hint = QLabel("勾选可出现的位置，歌词按勾选位置轮流出现。\n拖动画框移动范围，拖右下角缩放；也可在下方输入百分比。\n缩放范围保留字号，长句自动换行；放不下时请扩大范围。")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         grid = QGridLayout()
