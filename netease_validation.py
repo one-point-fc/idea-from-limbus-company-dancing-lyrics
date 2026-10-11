@@ -230,7 +230,11 @@ class NeteaseSmokeCheck:
             reliable = [(before, after) for before, after in zip(document.lines, translated.lines) if before.translation]
             self.translation_checks = {
                 "realChineseTranslationReceived": bool(reliable),
-                "translationUsesRealTextAndSentenceTimes": bool(reliable) and all(after.text == before.translation and after.start_ms == before.start_ms and not after.words for before, after in reliable),
+                "translationUsesRealTextAndSentenceTimes": bool(reliable) and all(
+                    after.text == (before.text if before.text.strip() == before.translation.strip()
+                                   else before.text + "\n" + before.translation.strip())
+                    and after.start_ms == before.start_ms and after.words == before.words
+                    for before, after in reliable),
                 "translationSwitchPersists": panel.store.load().prefer_translation is True,
                 "translationSwitchKeepsTransport": transport == (player._anchor, player._at, player.song_id, player.playing, self.jumps)}
             self.translation_evidence = {"songId": player.song_id, "translatedLines": len(reliable),

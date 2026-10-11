@@ -142,7 +142,9 @@ class CacheReaderTests(unittest.TestCase):
         self.assertEqual(result.source,'cache')
         self.assertIn('本地缓存',result.message)
         self.assertEqual(result.document.lines[0].translation,'你好译文')
-        self.assertEqual(display_document(result.document,True).lines[0].words,())
+        displayed = display_document(result.document, True).lines[0]
+        self.assertEqual(displayed.text, result.document.lines[0].text + "\n你好译文")
+        self.assertEqual(displayed.words, result.document.lines[0].words)
 
     def test_full_filename_matching_handles_separator_and_windows_replaced_characters(self):
         song = snapshot('A - B: 曲目','歌手/另一位','专辑 - 合集')

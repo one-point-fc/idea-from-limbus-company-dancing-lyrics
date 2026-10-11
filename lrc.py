@@ -41,8 +41,11 @@ def chinese_translation(text):
 def display_document(document, prefer_translation=False):
     if document is None or not prefer_translation:
         return document
-    lines = [replace(line, text=line.translation.strip(), words=())
-             if line.text.strip() and chinese_translation(line.translation) else line for line in document.lines]
+    # Keep original offsets/timings: translated glyphs follow the original text
+    # and therefore never inherit an original word's emphasis.
+    lines = [replace(line, text=line.text + "\n" + line.translation.strip())
+             if line.text.strip() and chinese_translation(line.translation)
+             and line.translation.strip() != line.text.strip() else line for line in document.lines]
     return LyricDocument(lines, list(document.warnings), document.offset_ms)
 
 

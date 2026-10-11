@@ -611,6 +611,7 @@ class ControlPanel(QWidget):
         self.region = QComboBox()
         self.region.addItem("屏幕两侧 · 避开中央工作区", "edges")
         self.region.addItem("屏幕内自由出现", "full")
+        self.region.addItem("屏幕上方 · 左上／右上交替", "top_alternate")
         self.region.setCurrentIndex(self.region.findData(self.prefs.region))
         self.region.currentIndexChanged.connect(lambda _: self._set_preference("region", self.region.currentData()))
         self.motion = QComboBox()
@@ -716,9 +717,9 @@ class ControlPanel(QWidget):
         self.font_status = label(self._font_message or ("部分导入字体无法加载，可重新导入。" if self.font_library.errors else
                                  "支持 TTF、OTF、TTC；选择后立即生效并自动保存。"), "muted")
         self.font_status.setWordWrap(True)
-        self.translation_checkbox = QCheckBox("有中文翻译时优先显示译文")
+        self.translation_checkbox = QCheckBox("原文与中文翻译上下同时显示")
         self.translation_checkbox.setChecked(self.prefs.prefer_translation)
-        self.translation_checkbox.setToolTip("逐句选择中文译文，无翻译时显示原文。译文按整句同步，不套用原文字词时间。")
+        self.translation_checkbox.setToolTip("原文在上、译文在下；无翻译时只显示原文。保留原文逐字强调，中文译文按整句同步。")
         self.translation_checkbox.toggled.connect(lambda value: self._set_preference("prefer_translation", value))
         self._reload_fonts()
         self.font_combo.currentIndexChanged.connect(self._font_selected)
@@ -1060,7 +1061,7 @@ class ControlPanel(QWidget):
         displayed = display_document(self.overlay.document, self.prefs.prefer_translation)
         translated = bool(displayed and self.prefs.prefer_translation and any(
             a.text != b.text for a, b in zip(displayed.lines, self.overlay.document.lines)))
-        status = word_timing_status(displayed, waiting)
+        status = word_timing_status(self.overlay.document, waiting)
         self.word_status.setText(status + " · 中文译文按整句同步" if translated else status)
 
     def _reload_presets(self):

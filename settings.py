@@ -83,7 +83,7 @@ def normalize_preferences(prefs):
                            ("entry_speed", 25, 300), ("exit_speed", 25, 300),
                            ("shake_frequency", 1, 15), ("fall_distance", 0, 128)):
         setattr(prefs, key, max(low, min(high, getattr(prefs, key))))
-    if prefs.region not in ("edges", "full"):
+    if prefs.region not in ("edges", "full", "top_alternate"):
         prefs.region = "edges"
     if prefs.motion not in ("audio", "wave"):
         prefs.motion = "audio"

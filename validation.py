@@ -177,7 +177,9 @@ class SmokeCheck:
         self.app.processEvents()
         visible = overlay.timeline.visible(position, self.player.duration)
         self.results["translation_switch_saved"] = panel.store.load().prefer_translation is True
-        self.results["translation_demo_rebuilds_lyrics"] = bool(visible) and all(line.text == "这是一句演示中文译文" and not line.words for line in visible)
+        self.results["translation_demo_rebuilds_lyrics"] = bool(visible) and all(
+            line.text == demo.lines[line.index].text + "\n这是一句演示中文译文"
+            and line.words == demo.lines[line.index].words for line in visible)
         overlay.grab().save(str(self.report_dir / "translation-demo-overlay.png"))
         panel.translation_checkbox.setChecked(original)
         overlay.set_document(document)

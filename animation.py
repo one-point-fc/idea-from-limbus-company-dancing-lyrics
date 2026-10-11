@@ -43,8 +43,13 @@ class LineLayout:
     surface: object = None
 
 
-def display_regions(width: int, height: int, mode: str) -> list[QRectF]:
+def display_regions(width: int, height: int, mode: str, sentence_index: int = 0) -> list[QRectF]:
     pad = min(24, width * 0.02, height * 0.03)
+    if mode == "top_alternate":
+        band = width * 0.46 - pad
+        regions = [QRectF(pad, pad, band, height * 0.32 - pad),
+                   QRectF(width - pad - band, pad, band, height * 0.32 - pad)]
+        return [regions[sentence_index % 2]]
     if mode == "edges":
         band = max(1.0, width * 0.22 - 2 * pad)
         return [QRectF(pad, pad, band, height - 2 * pad),
@@ -101,7 +106,7 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
     rng.shuffle(regions)
     fallback = None
     for region in regions:
-        angle = rng.uniform(-prefs.angle, prefs.angle)
+        angle = 0 if prefs.region == "top_alternate" else rng.uniform(-prefs.angle, prefs.angle)
         for pixels in range(prefs.font_size, 9, -1):
             reserve = 50
             if prefs.animation_style != "classic":
@@ -135,7 +140,8 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
             x_low, x_high = region.left() + rotated_w / 2, region.right() - rotated_w / 2
             y_low, y_high = region.top() + rotated_h / 2, region.bottom() - rotated_h / 2
             for _ in range(12):
-                center = QPointF(rng.uniform(x_low, x_high), rng.uniform(y_low, y_high))
+                center = (QPointF((x_low + x_high) / 2, y_low) if prefs.region == "top_alternate"
+                          else QPointF(rng.uniform(x_low, x_high), rng.uniform(y_low, y_high)))
                 bounds = QRectF(center.x() - rotated_w / 2, center.y() - rotated_h / 2,
                                 rotated_w, rotated_h)
                 item = LineLayout(glyphs, center, angle, bounds, pixels)

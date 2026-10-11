@@ -2,6 +2,30 @@
 
 每次改动按日期追加记录，包含改动目的、涉及文件、测试与验证结果、影响或已知限制。
 
+## 2026-10-11：本机双语上下显示与顶部左右交替
+
+### 改动
+
+- `lrc.py` 将已启用的译文开关改为原文在上、中文译文在下，同句换行显示；保留原文逐字时间，不将时间套到译文字形，无翻译和重复译文回退为单份原文。
+- `animation.py`、`overlay.py`、`settings.py` 增加 `top_alternate` 区域：仅占屏幕上方 32%，按非空歌词顺序交替使用左上、右上，双语整组水平排列。进度跳转仍使用句子顺序，空白歌词不占次数。
+- `controls.py` 更新区域选项、双语开关说明和原文逐字状态；更新 README、翻译测试、QQ 缓存测试和原生翻译检查。新增 `tests/test_top_bilingual.py` 覆盖双语顺序、原文强调、无翻译回退、重复译文、不同分辨率和动画边界、空白及拖动进度。
+- Python 3.12 为 HTTPS 提供默认验证上下文，原有网络测试改为校验实际上下文仍验证证书和主机名，未修改网络实现。
+
+### 测试与验证
+
+- `.venv/Scripts/python.exe -m unittest discover -s tests -v`：311 项，309 通过、2 项平台检查跳过，记录 `artifacts/bilingual-tests-final.txt`。测试临时目录使用 D 盘完整路径，避免系统 8.3 短路径造成原有安装器测试断言不一致。
+- Windows 原生双语预览通过：`artifacts/check_native_bilingual.py`，两帧记录 `artifacts/bilingual-native.json` 及截图。实际 1536×960 逻辑屏幕中，原文与译文上下排列，整组分别位于左上和右上。
+- PyInstaller 构建成功；复用同版官方包中未修改的 `ProcessEnergy.exe` 音频助手，记录 `artifacts/bilingual-build-final.txt`。
+- 初次原生静音检查暴露旧译文断言及并发测试负载下的帧耗时超标；双语断言已随行为更新。最终从成品 `启动.bat --smoke` 执行的报告含 75 项结果，功能检查通过，`animation_p95_under_33ms` 未通过（最慢采样 P95 47.281ms）；报告 `artifacts/package-smoke/smoke-report.json`。运行时另有游戏和本机任务，未改低阈值或宣称性能检查通过。
+- 已安装至 `D:/DancingLyrics-NetEase`，旧目录保留为 `D:/DancingLyrics-NetEase-before-bilingual-20261011`。新 EXE 与构建产物 SHA-256 一致，原连接配置哈希不变。已启用 `region=top_alternate` 和 `prefer_translation=true`，原有字体、颜色和动画参数保留。
+- 新版已连接网易云；实际歌曲截图观察到日文原文及中文翻译在左上上下显示。此检查未控制网易云歌曲、暂停或进度。
+
+### 影响与限制
+
+- 本机定制基于官方 v0.7.0-beta.5，后续覆盖官方安装包会覆盖此改动。保留旧安装目录备份及原有连接配置。
+- 译文来自播放器提供的中文歌词；没有译文时只显示原文，不调用翻译服务。长句在顶部区域内自动折行或缩小字号。顶部模式不使用整句倾斜，其他动画和原文逐字强调保留。
+- 原生左右位置预览使用合成演示歌词，安装后另行观察真实网易云双语歌词。未执行长时间稳定性测试；上述动画压力检查未全部达到 33ms 帧耗时门槛。
+
 ## 2026-10-11：QQ 音乐自动启动与发行更新（0.7.0-beta.5）
 
 ### 改动

@@ -176,7 +176,7 @@ class WorkflowDocumentationTests(unittest.TestCase):
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         for phrase in ("卡门的声音", "固定暖白字芯与琥珀金光晕", "原有自定义颜色会保留", "效果预设保存"):
             self.assertIn(phrase, text)
-        for phrase in ("有中文翻译时优先显示译文", "无中文翻译", "不套用原文逐字时间", "独立于效果预设"):
+        for phrase in ("原文与中文翻译上下同时显示", "左上／右上交替", "无中文翻译", "不套用原文逐字时间", "独立于效果预设"):
             self.assertIn(phrase, text)
         from PySide6.QtGui import QImageReader
         fingerprints = []

@@ -3,6 +3,7 @@ from concurrent.futures import CancelledError
 import io
 import json
 import os
+import ssl
 import threading
 import unittest
 from unittest.mock import MagicMock, patch
@@ -40,7 +41,11 @@ class ConnectionTests(unittest.TestCase):
             with transport.lyric_connection():
                 self.assertEqual(lyrics.request_json(URL, {"search": 1}), {"code": 0})
                 self.assertEqual(lyrics.request_json(URL, {"lyric": 1}), {"code": 0})
-                factory.assert_called_once_with("u.y.qq.com", timeout=5, context=None)
+                context = factory.call_args.kwargs["context"]
+                factory.assert_called_once_with("u.y.qq.com", timeout=5, context=context)
+                if context is not None:  # Python 3.12 supplies the verified default context.
+                    self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+                    self.assertTrue(context.check_hostname)
                 connection.close.assert_not_called()
                 headers = connection.request.call_args.args[3]
                 self.assertEqual(headers["Connection"], "keep-alive")
@@ -64,7 +69,11 @@ class ConnectionTests(unittest.TestCase):
         with patch.object(transport.http.client, "HTTPSConnection") as factory:
             factory.return_value.getresponse.return_value = response()
             handler.https_open(request).close()
-            factory.assert_called_once_with("proxy.invalid:8080", timeout=5, context=None)
+            context = factory.call_args.kwargs["context"]
+            factory.assert_called_once_with("proxy.invalid:8080", timeout=5, context=context)
+            if context is not None:
+                self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+                self.assertTrue(context.check_hostname)
             factory.return_value.set_tunnel.assert_called_once_with("u.y.qq.com", headers={
                 "Proxy-Authorization": "Basic test-proxy"})
             self.assertNotIn("Proxy-Authorization", factory.return_value.request.call_args.args[3])

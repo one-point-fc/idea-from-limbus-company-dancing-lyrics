@@ -140,11 +140,13 @@ class LyricsOverlay(QWidget):
         active = self.timeline.visible(position, self.player.duration)
         wanted = {item.index for item in active}
         self.layouts = {key: value for key, value in self.layouts.items() if key in wanted}
-        regions = display_regions(self.width(), self.height(), self.prefs.region)
         for item in active:
             if item.index in self.layouts:
                 continue
             occupied = [layout.bounds for layout in self.layouts.values()]
+            # Empty instrumental markers must not consume a left/right turn.
+            sentence_index = sum(bool(line.text.strip()) for line in self.timeline.lines[:item.index])
+            regions = display_regions(self.width(), self.height(), self.prefs.region, sentence_index)
             layout = build_layout(item.text, self.seed + item.index * 7919, regions, occupied, self.prefs)
             if layout:
                 self.layouts[item.index] = layout
