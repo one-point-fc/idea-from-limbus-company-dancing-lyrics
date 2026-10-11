@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-const source=fs.readFileSync(require.resolve('../tools/verify_netease_host.mjs'),'utf8');
+const source=fs.readFileSync(require.resolve('../tools/verify_netease_host.mjs'),'utf8').replace(/\r\n/g,'\n');
 const clientStep=source.slice(source.indexOf('function clientStep('),source.indexOf('async function remote('));
 const exercise=source.slice(source.indexOf('async function exercise(){'),source.indexOf('\ntry {\n'));
 async function simulate({frozen=false,skips=false}={}){

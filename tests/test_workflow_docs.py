@@ -16,6 +16,18 @@ DOCUMENTS = tuple(ROOT / name for name in ("AGENTS.md", "CHANGELOG.md", "README.
 
 
 class WorkflowDocumentationTests(unittest.TestCase):
+    def test_custom_branch_readme_contains_installation_and_usage_tutorial(self):
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        tutorial = text.split("以下保留原项目", 1)[0]
+        for phrase in ("custom-regions-bilingual", "下载链接是原版", "完整解压", "安装网易云联动.bat",
+                       "左上、右上、左中、右中、左下、右下", "拖右下角缩放", "缩放范围保留设置的字号",
+                       "75%", "自动对齐网易云歌词时间", "保留 `.state`", "重新运行",
+                       "tools\\package_release.py --player netease", "Visual Studio C++", "Windows SDK"):
+            self.assertIn(phrase, tutorial)
+        from PySide6.QtGui import QImageReader
+        image = QImageReader(str(ROOT / "docs/images/custom-regions-editor.png")).read()
+        self.assertFalse(image.isNull())
+
     def test_qq_autostart_release_describes_opt_in_disable_reuse_and_update(self):
         from app_info import APP_VERSION
         guide = (ROOT/'QQMUSIC.md').read_text(encoding='utf-8')
