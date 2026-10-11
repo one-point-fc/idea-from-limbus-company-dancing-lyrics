@@ -172,7 +172,20 @@
             this.subscriptions=[];this.bound=null;
         }
     }
-    const api={findStore,lyricsFor,snapshot,playbackStreams,PlaybackEvents,parseYrc,attachWordTimings,attachTranslations,nativeLyricCache,LegacyLyricReader};
+    class PlaybackClock {
+        constructor(clock=()=>Date.now()) {this.clock=clock;this.id=null;this.position=0;this.at=clock();this.playing=false;}
+        update(id, position) {this.id=id;this.position=position;this.at=this.clock();}
+        sample(id, playing) {
+            const now=this.clock();
+            if(id!==this.id){this.id=id;this.position=0;this.at=now;this.playing=false;}
+            if(playing!==this.playing) {
+                if(this.playing)this.position+=Math.max(0,Math.min(1500,now-this.at));
+                this.at=now;this.playing=playing;
+            }
+            return {position:this.position,at:this.at};
+        }
+    }
+    const api={findStore,lyricsFor,snapshot,playbackStreams,PlaybackEvents,PlaybackClock,parseYrc,attachWordTimings,attachTranslations,nativeLyricCache,LegacyLyricReader};
     if (typeof module!=='undefined' && module.exports) module.exports=api;
     else root.FloatingLyricsAdapter=api;
 })(typeof window==='undefined' ? globalThis : window);

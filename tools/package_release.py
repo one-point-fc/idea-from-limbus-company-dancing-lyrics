@@ -65,6 +65,9 @@ def package_release(package, output_dir, root=ROOT, *, player="netease"):
     for name in scripts:
         entries.append((root / "release" / name, name))
     entries.append((root / "release" / player / "使用说明.txt", "使用说明.txt"))
+    guide = root / "release" / player / "安装教程.html"
+    if guide.is_file():
+        entries.append((guide, "安装教程.html"))
     for path in sorted(licenses.rglob("*")):
         if path.is_file():
             entries.append((path, path.relative_to(root / "release").as_posix()))

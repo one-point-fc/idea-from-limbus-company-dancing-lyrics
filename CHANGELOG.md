@@ -2,6 +2,28 @@
 
 每次改动按日期追加记录，包含改动目的、涉及文件、测试与验证结果、影响或已知限制。
 
+## 2026-10-11：六区域独立范围与网易云自动时间对齐
+
+### 改动
+
+- 新增 `regions.py`、`region_editor.py`，六个区域多选、画框拖动和右下角缩放、百分比输入、取消隔离、至少保留一个位置。`settings.py` 持久保存各框，`presets.py` 保持位置和自动同步独立于效果预设；`controls.py` 提供入口。
+- `animation.py`、`overlay.py` 按选中的位置循环并靠各区域外侧放置，避免短句漂向屏幕中央。保留上下双语、原文大译文小、整组随机倾斜及动画边界约束。
+- `plugins/netease/adapter.js`、`index.js` 保留网易云进度原始采样时间，`netease.py` 补偿本机消息间隔，重复旧快照不会重置成落后的进度或误判跳转。新增默认开启的自动对齐开关，`lrc.py` 让新句在时间点直接可见，减少入场渐显的视觉延迟；经典动画的长句跟随下一句时间，避免六秒后提前消失。
+- 更新 README、包内使用说明；新增自包含图文 `release/netease/安装教程.html`，包含实际窗口截图、更新插件和保留设置步骤，打包器只额外收录该教程。新增范围、编辑器、时间补偿及文档打包测试。
+
+### 测试与验证
+
+- 全量 `.venv/Scripts/python.exe -m unittest discover -s tests -v`：318 项，316 通过、2 项平台检查跳过；`artifacts/custom-regions-tests-final.txt`。包含 Node 插件时钟、暂停、跳转及切歌测试。
+- Windows 原生六个位置及编辑器验证通过，`artifacts/custom-native.json`；实际检查原文大、译文小、整组倾斜和靠外侧放置的截图。截图使用合成歌词，无播放控制。
+- `main.py --smoke --report-dir artifacts/custom-regions-source-smoke` 与实际 `启动.bat -Smoke -ReportDirectory .../artifacts/custom-regions-package-smoke`：各 75 项检查结果通过，包含原生窗口可见性、动画和帧耗时检查。PyInstaller 构建成功，日志 `artifacts/custom-regions-build.txt`。
+- 已更新 `D:/DancingLyrics-NetEase` 的 EXE 及两份插件模板，并成功重新安装网易云联动插件；网易云 3.1.41.205529 重启后，38473 端口恢复已建立连接。插件内容与源码一致，EXE 与成品一致，本机连接配置哈希不变。保留原有字体、颜色、倾斜、动画和同步偏移，只启用自选区域及自动同步。
+- 旧文件和更新前设置备份到 `D:/DancingLyrics-NetEase/.backups/before-custom-regions-20261011-215402`。发布 ZIP 已通过 CRC、文件唯一性、EXE/插件一致性及个人数据排除检查；包内含安装教程、脚本和许可，未打包 `.state` 或连接令牌。
+
+### 影响与限制
+
+- 自动对齐根据网易云播放时钟和歌词时间工作，不读取原版桌面歌词窗口；尚未测量两个窗口的逐帧显示误差。开启时跳过入场渐显，保留倾斜、律动和退场，关闭可恢复完整入场动画。更新必须同时重新安装插件。
+- 本机维持左上／右上两个位置，用户可自由更改；位置按固定顺序循环，坐标相对主屏可用区域。极小范围仍放不下时会跳过该句。未在第二台干净电脑或长时间稳定性场景全面验证。
+
 ## 2026-10-11：恢复原版倾斜并缩小下方译文
 
 ### 改动

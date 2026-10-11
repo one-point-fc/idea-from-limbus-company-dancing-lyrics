@@ -7,6 +7,7 @@ from fonts import lyric_font
 from settings import DEFAULT_FONT_FAMILY, Preferences
 from text_effects import effect_geometry
 from glyph_motion import motion_bounds
+from regions import selected_regions, region_boxes
 
 
 def graphemes(text: str) -> list[str]:
@@ -43,7 +44,12 @@ class LineLayout:
     surface: object = None
 
 
-def display_regions(width: int, height: int, mode: str, sentence_index: int = 0) -> list[QRectF]:
+def display_regions(width: int, height: int, mode: str, sentence_index: int = 0, prefs=None) -> list[QRectF]:
+    if mode == "custom" and prefs is not None:
+        choices = selected_regions(prefs.selected_regions)
+        box = region_boxes(prefs.region_boxes)[choices[sentence_index % len(choices)]]
+        x, y, w, h = box
+        return [QRectF(width*x/100, height*y/100, width*w/100, height*h/100)]
     pad = min(24, width * 0.02, height * 0.03)
     if mode == "top_alternate":
         band = width * 0.46 - pad
@@ -111,7 +117,7 @@ def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAUL
 
 
 def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRectF],
-                 prefs: Preferences, translation_start: int | None = None) -> LineLayout | None:
+                 prefs: Preferences, translation_start: int | None = None, anchor: str | None = None) -> LineLayout | None:
     rng = random.Random(seed)
     regions = list(regions)
     rng.shuffle(regions)
@@ -152,11 +158,16 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
             x_low, x_high = region.left() + rotated_w / 2, region.right() - rotated_w / 2
             y_low, y_high = region.top() + rotated_h / 2, region.bottom() - rotated_h / 2
             for _ in range(12):
-                center = (QPointF((x_low + x_high) / 2, y_low) if prefs.region == "top_alternate"
+                center = (QPointF(x_low if anchor.endswith("left") else x_high,
+                                  y_low if anchor.startswith("top") else y_high if anchor.startswith("bottom")
+                                  else (y_low+y_high)/2) if anchor else
+                          QPointF((x_low + x_high) / 2, y_low) if prefs.region == "top_alternate"
                           else QPointF(rng.uniform(x_low, x_high), rng.uniform(y_low, y_high)))
                 bounds = QRectF(center.x() - rotated_w / 2, center.y() - rotated_h / 2,
                                 rotated_w, rotated_h)
                 item = LineLayout(glyphs, center, angle, bounds, pixels)
+                if anchor:
+                    return item  # The overlay retires an older sentence in the same selected box.
                 if not any(bounds.intersects(rect.adjusted(-12, -12, 12, 12)) for rect in occupied):
                     return item
             # Try fixed empty slots before using a smaller font or dropping the older sentence.
@@ -171,5 +182,5 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
             break
     if fallback is None and prefs.animation_style != "classic" and prefs.angle:
         # Very narrow bands with long imported glyphs may only fit without sentence tilt.
-        return build_layout(text, seed, regions, occupied, replace(prefs, angle=0), translation_start)
+        return build_layout(text, seed, regions, occupied, replace(prefs, angle=0), translation_start, anchor)
     return fallback  # Overlay drops conflicting older instances in this rare case.

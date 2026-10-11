@@ -294,6 +294,11 @@ class ReleaseTests(unittest.TestCase):
                         self.assertEqual(any(name.endswith("卸载网易云联动.bat") for name in names), player == "netease")
                         self.assertEqual(any(name.endswith("启动QQ音乐联动.bat") for name in names), player == "qqmusic")
                         self.assertEqual(any(name.endswith("启动.bat") for name in names), player == "netease")
+                        if player == "netease":
+                            tutorial = archive.read(f"{prefix}/安装教程.html").decode("utf-8")
+                            for phrase in ("左上", "右上", "左中", "右中", "左下", "右下",
+                                           "自动对齐网易云歌词时间", "保留 .state", "安装网易云联动.bat"):
+                                self.assertIn(phrase, tutorial)
                         self.assertEqual(any("/plugins/netease/" in name for name in names), player == "netease")
                         self.assertEqual(any(name.endswith("native/qqmusic_smtc.ps1") for name in names), player == "qqmusic")
                         info = json.loads(archive.read(f"{prefix}/package-info.json"))

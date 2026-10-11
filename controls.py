@@ -612,8 +612,15 @@ class ControlPanel(QWidget):
         self.region.addItem("屏幕两侧 · 避开中央工作区", "edges")
         self.region.addItem("屏幕内自由出现", "full")
         self.region.addItem("屏幕上方 · 左上／右上交替", "top_alternate")
+        self.region.addItem("自选位置与范围（可多选）", "custom")
         self.region.setCurrentIndex(self.region.findData(self.prefs.region))
         self.region.currentIndexChanged.connect(lambda _: self._set_preference("region", self.region.currentData()))
+        self.region_editor_button = QPushButton("选择六个位置与范围…")
+        self.region_editor_button.clicked.connect(self.edit_regions)
+        self.native_sync_checkbox = QCheckBox("自动对齐网易云歌词时间")
+        self.native_sync_checkbox.setChecked(self.prefs.native_line_sync)
+        self.native_sync_checkbox.setToolTip("跟随网易云的播放时钟，新句到点立即可见；保留倾斜、律动与退场。关闭后恢复完整入场动画。同步偏移仍可手动微调。")
+        self.native_sync_checkbox.toggled.connect(lambda value: self._set_preference("native_line_sync", value))
         self.motion = QComboBox()
         self.motion.addItem("跟随音乐强弱", "audio")
         self.motion.addItem("轻波浪", "wave")
@@ -724,7 +731,8 @@ class ControlPanel(QWidget):
         self._reload_fonts()
         self.font_combo.currentIndexChanged.connect(self._font_selected)
         for title, fields in (
-            ("显示与文字", (("显示区域", self.region), ("歌词字体", font_field), ("文字样式", self.text_style),
+            ("显示与文字", (("显示区域", self.region), ("位置与范围", self.region_editor_button),
+                          ("歌词字体", font_field), ("文字样式", self.text_style),
                           ("发光风格", self.glow_variant),
                           ("文字大小", self.spins["font_size"]),
                           (self.color_label, self.color_button), ("发光强度", self.glow_field),
@@ -735,7 +743,8 @@ class ControlPanel(QWidget):
                           ("预览背景", self.preview_background), ("效果预览", self.font_preview), ("动画预览", self.replay_button),
                           ("逐字演唱同步", self.singing_checkbox), ("歌曲逐字时间", self.word_status),
                           ("运动方式", self.motion), ("律动幅度", self.spins["jump"]),
-                          ("倾斜范围", self.spins["angle"]), ("同步偏移", self.spins["delay_ms"]))),
+                          ("倾斜范围", self.spins["angle"]), ("网易云时间", self.native_sync_checkbox),
+                          ("同步偏移", self.spins["delay_ms"]))),
         ):
             section, section_body = card(title)
             form = QFormLayout()
@@ -1027,6 +1036,17 @@ class ControlPanel(QWidget):
         self.player.set_volume(value)
         self.volume_label.setText(f"{value}%")
         self.store.save(self.prefs)
+
+    def edit_regions(self):
+        from region_editor import RegionEditor
+        dialog = RegionEditor(self.prefs, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            self.prefs.selected_regions, self.prefs.region_boxes = dialog.values()
+            self.prefs.region = "custom"
+            blocker = QSignalBlocker(self.region)
+            self.region.setCurrentIndex(self.region.findData("custom"))
+            self.store.save(self.prefs)
+            self.overlay.refresh_preferences()
 
     def _set_preference(self, key, value):
         setattr(self.prefs, key, value)

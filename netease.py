@@ -44,6 +44,8 @@ def validate_snapshot(data: dict) -> dict:
             raise ValueError("歌曲信息无效")
     result["duration_ms"] = int(_number(data.get("duration_ms"), 24 * 3600 * 1000))
     result["position_ms"] = _number(data.get("position_ms"), result["duration_ms"] or 24 * 3600 * 1000)
+    if "position_at_ms" in data:
+        result["position_at_ms"] = _number(data["position_at_ms"], 1e14)
     if not isinstance(data.get("playing"), bool) or not isinstance(data.get("enabled"), bool):
         raise ValueError("播放状态无效")
     lines = data.get("lyrics")
@@ -112,14 +114,19 @@ class NeteasePlayer(QObject):
         now = self._clock()
         song = snapshot["song"]
         switched = song["id"] != self.song_id
-        jumped = switched or bool(snapshot.get("seek")) or abs(snapshot["position_ms"] - self.position()) > 750
+        measured_at = snapshot.get("position_at_ms")
+        elapsed = max(0, min(1500, time.time()*1000-measured_at)) if measured_at and snapshot["playing"] else 0
+        anchor = snapshot["position_ms"] + elapsed
+        if snapshot["duration_ms"]:
+            anchor = min(snapshot["duration_ms"], anchor)
+        jumped = switched or bool(snapshot.get("seek")) or abs(anchor - self.position()) > 750
         if switched:
             self.document_changed.emit(None)
             self.lyrics_received = False
             self._energy = 0
         self.song_id, self.title, self.artist = song["id"], song["title"], song["artist"]
         self.duration = snapshot["duration_ms"]
-        self._anchor, self._at = snapshot["position_ms"], now
+        self._anchor, self._at = anchor, now
         self.enabled = snapshot["enabled"]
         self.playing = snapshot["playing"] and self.enabled
         self.ended = self.duration > 0 and self._anchor >= self.duration

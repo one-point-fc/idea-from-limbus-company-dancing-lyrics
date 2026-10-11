@@ -99,3 +99,18 @@ assert.equal(readPlaybackPosition({querySelector:()=>null,querySelectorAll:()=>[
 assert.throws(()=>readPlaybackPosition({querySelector:()=>null,querySelectorAll:()=>[volume]},194),/unavailable/);
 assert.throws(()=>readPlaybackPosition({querySelector:()=>null,querySelectorAll:()=>[progress,progress]},194),/unavailable/);
 console.log('Both progress input layouts supported, missing inputs never pretend to be zero');
+{
+    let now=100000;
+    const clock=new adapter.PlaybackClock(()=>now);
+    clock.sample('one',true);
+    clock.update('one',1000);
+    now+=500;
+    assert.deepEqual(clock.sample('one',true),{position:1000,at:100000},
+        'keep the original measurement timestamp instead of resetting a stale clock');
+    assert.deepEqual(clock.sample('one',false),{position:1500,at:100500});
+    now+=1000;
+    assert.deepEqual(clock.sample('one',false),{position:1500,at:100500});
+    clock.update('one',9000);
+    assert.equal(clock.sample('one',false).position,9000,'paused seek is authoritative');
+    assert.equal(clock.sample('two',true).position,0,'song change clears the prior clock');
+}

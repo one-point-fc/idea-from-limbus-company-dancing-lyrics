@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor
+from regions import DEFAULT_BOXES_JSON, DEFAULT_SELECTION, region_boxes, selected_regions
 
 def default_font_family(platform=None):
     return "PingFang SC" if (platform or sys.platform) == "darwin" else "Microsoft YaHei UI"
@@ -33,6 +34,9 @@ class Preferences:
     jump: int = 10
     angle: int = 12
     region: str = "edges"
+    selected_regions: str = DEFAULT_SELECTION
+    region_boxes: str = DEFAULT_BOXES_JSON
+    native_line_sync: bool = True
     delay_ms: int = 0
     volume: int = 45
     motion: str = "audio"
@@ -83,8 +87,11 @@ def normalize_preferences(prefs):
                            ("entry_speed", 25, 300), ("exit_speed", 25, 300),
                            ("shake_frequency", 1, 15), ("fall_distance", 0, 128)):
         setattr(prefs, key, max(low, min(high, getattr(prefs, key))))
-    if prefs.region not in ("edges", "full", "top_alternate"):
+    if prefs.region not in ("edges", "full", "top_alternate", "custom"):
         prefs.region = "edges"
+    import json
+    prefs.selected_regions = ",".join(selected_regions(prefs.selected_regions))
+    prefs.region_boxes = json.dumps(region_boxes(prefs.region_boxes))
     if prefs.motion not in ("audio", "wave"):
         prefs.motion = "audio"
     if prefs.text_style not in ("glow", "solid"):

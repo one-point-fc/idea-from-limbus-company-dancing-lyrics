@@ -1,8 +1,9 @@
 (() => {
-    let socket=null, store=null, config=null, position=0, playId='', lastSent=0, lastLyrics='', lastSong='', fetchSong='', lastState='';
+    let socket=null, store=null, config=null, lastSent=0, lastLyrics='', lastSong='', fetchSong='', lastState='';
     let clientVersion='', legacyLyrics=null, enabled=localStorage.getItem('floatingLyrics.enabled') !== 'false';
     let status='正在连接桌面歌词…', launching=false, nextLaunch=0, pendingShow=false;
     const buttons=new Set();
+    const playbackClock=new FloatingLyricsAdapter.PlaybackClock();
     function updateStatus(value) {
         status=value;
         for(const item of buttons) {
@@ -19,8 +20,9 @@
         try {
             const state=store.getState(), p=state.playing;
             if (!p) return;
-            if (p.playId !== playId) {playId=p.playId; position=0;}
-            const data=FloatingLyricsAdapter.snapshot(legacyLyrics?legacyLyrics.state(state):state,position,enabled,clientVersion);
+            const clock=playbackClock.sample(p.playId,p.playingState===2);
+            const data=FloatingLyricsAdapter.snapshot(legacyLyrics?legacyLyrics.state(state):state,clock.position,enabled,clientVersion);
+            data.position_at_ms=clock.at;
             const transportState=JSON.stringify([data.song.id,data.playing,data.enabled,data.duration_ms]);
             lastState=transportState;
             const key=data.song.id, lyrics=JSON.stringify(data.lyrics);
@@ -89,7 +91,7 @@
                 song=>FloatingLyricsAdapter.nativeLyricCache()(song),()=>send(true),reportError);
             const events=new FloatingLyricsAdapter.PlaybackEvents(()=>FloatingLyricsAdapter.playbackStreams(),
                 ()=>store?.getState().playing,(id,milliseconds,seek)=>{
-                    playId=id;position=milliseconds;send(seek,seek);
+                    playbackClock.update(id,milliseconds);send(seek,seek);
                 },reportError);
             const attach=()=>{
                 if(!store) {
