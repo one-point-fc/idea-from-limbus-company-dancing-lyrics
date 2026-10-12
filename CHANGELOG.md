@@ -2,6 +2,29 @@
 
 每次改动按日期追加记录，包含改动目的、涉及文件、测试与验证结果、影响或已知限制。
 
+## 2026-10-12：本机字体库与网易云原生歌词兼容性
+
+### 改动
+
+- `fonts.py`、`controls.py`：字体库展示全部本机字体及导入字体，排除竖排家族；选择、导入和重启恢复沿用原有存储。`themes.py` 给数字输入及其编辑区指定独立的 Segoe UI 字体与零内边距，避免歌词字体影响设置读数。
+- `plugins/netease/adapter.js`：原生歌词正在加载或仍属于旧歌时发送 pending（null），避免清空同一首歌已有歌词；明确无歌词发送空数组。沿用网易云自身歌词、译文及偏移，只有 YRC 时也能生成歌词行，没有引入第三方歌词源。
+- `animation.py`、`overlay.py`、`text_effects.py`：修复固定字号长句放不进自选框就整句消失。普通换行不变，放不下时切换到框内双行滚动，原文及 75% 译文字号不变，保留倾斜。绘制画布按区域限制尺寸，跳过屏幕外字形的合成。
+- 更新 README、离线 HTML 和文字教程，增加回归测试覆盖长句实际绘制、字体选择恢复、加载期间保留歌词、YRC 回退和说明一致性。
+
+### 测试与验证
+
+- `python -m unittest discover -s tests -v`：326 项，324 通过、2 项平台检查跳过；含 Node 插件契约检查。`artifacts/test-fixes.txt`。
+- `python main.py --smoke --report-dir artifacts/source-native-fixes` 和 `启动.bat -Smoke -ReportDirectory artifacts/packaged-native-fixes-final`：Windows 原生及打包启动检查通过，含字体、动画、暂停、拖动、结束清空和绘制性能。
+- 安装版连接真实网易云 3.1.41.205529，`--netease-smoke --settings-smoke --font-smoke-file tests/fixtures/lyrics-test.ttf`：18 项检查通过，含真实歌词画面、暂停、拖动、最小化播放、断开清空、主题切换、字体导入及持久化。报告 `artifacts/real-native-fixes-final/netease-report.json`。
+- `node artifacts/native-fixes-driver.mjs artifacts/native-host-fixes`：宿主 7 项检查通过，含连续切三首歌和歌词所属歌曲一致。补测断开时的另一轮宿主采样跨过歌曲自然结束（139 秒至下一首 0 秒），该轮直接相减的进度断言失效，其余 6 项通过；实机采集报告的 18 项均通过。
+- 通过 PyInstaller 构建，复用未修改的 ProcessEnergy 原生助手；发布 ZIP CRC 校验通过，桌面和 outputs 副本 SHA-256 一致。安装后 EXE 与构建文件一致，用户 settings.ini 与连接配置校验值保持不变，联动安装报告通过。教程随包交付。
+
+### 影响与限制
+
+- 截图里的数字畸形在源码及安装版打开设置时未稳定复现；本次做字体隔离与编辑区域修正，三种主题下读数及几何检查通过，不能声称已确认该截图的根因。
+- 框高度小于两行文字时仍会裁切，应扩大高度；窄框必要时减少倾斜以保持范围。自动同步使用网易云歌词与播放时钟，未测量原版桌面歌词窗口的逐帧误差。未复制网易云字体文件，未改动歌曲或账户数据。
+- 继续更新 `custom-regions-bilingual` 源码分支，未创建 GitHub Release；桌面成品名含 20261012，保留旧包便于回退。
+
 ## 2026-10-11：定制分支首页安装与使用教程
 
 ### 改动

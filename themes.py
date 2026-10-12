@@ -74,6 +74,8 @@ QComboBox:disabled, QSpinBox:disabled { color: $disabled; background: $disabled_
 QComboBox::drop-down { border: none; width: 24px; }
 QComboBox QAbstractItemView { background: $surface; color: $text; selection-background-color: $selection; selection-color: $selection_text; }
 QSpinBox::up-button, QSpinBox::down-button { width: 20px; }
+QSpinBox, QDoubleSpinBox { font-family: 'Segoe UI'; font-size: 13px; }
+QSpinBox QLineEdit, QDoubleSpinBox QLineEdit { font-family: 'Segoe UI'; font-size: 13px; padding: 0; border: none; background: transparent; }
 QSlider { background: transparent; }
 QSlider::groove:horizontal, QSlider::add-page:horizontal { height: 4px; background: $track; border: none; border-radius: 2px; }
 QSlider::sub-page:horizontal { background: #ff3656; border: none; border-radius: 2px; }

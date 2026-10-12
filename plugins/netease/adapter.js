@@ -65,12 +65,15 @@
     let lyricCache=null, lyricSong='', lyricResult=[], lyricFields=[];
     function lyricsFor(state, songId) {
         const lyric=state['async:lyric'];
-        if (!lyric || String(lyric.resourceTrackId) !== songId || lyric.displayType !== 'default') return [];
+        // null means pending; [] means the native client explicitly has no lyrics.
+        if (!lyric || String(lyric.resourceTrackId) !== songId || lyric.isLoading) return null;
+        if (lyric.displayType !== 'default') return [];
         const fields=[lyric.lyricLines,lyric.yrcInfo?.yrc,lyric.offset,lyric.scrollable,lyric.tlyricLines];
         if(lyric===lyricCache&&songId===lyricSong&&fields.every((field,index)=>field===lyricFields[index]))return lyricResult;
-        const lines=(lyric.lyricLines || []).filter(x => Number.isFinite(x.time) && typeof x.lyric === 'string')
+        let lines=(lyric.lyricLines || []).filter(x => Number.isFinite(x.time) && typeof x.lyric === 'string')
             .map(x => ({time_ms: Math.round(Math.max(0,x.time*1000)), text:x.lyric}));
         const offset=lyric.scrollable&&Number.isFinite(lyric.offset)?Math.round(lyric.offset*1000):0;
+        if (!lines.length) lines=parseYrc(lyric.yrcInfo?.yrc,offset);
         lyricResult=attachTranslations(attachWordTimings(lines,lyric.yrcInfo?.yrc,offset),lyric.tlyricLines,offset);
         lyricCache=lyric;lyricSong=songId;lyricFields=fields;
         return lyricResult;

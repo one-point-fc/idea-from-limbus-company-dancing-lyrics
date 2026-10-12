@@ -115,7 +115,7 @@ class TextEffects:
             self.cache_bytes += size
         return asset
 
-    def prepare(self, glyphs, pixels, prefs, dpr, jump_limit=0, angle=0):
+    def prepare(self, glyphs, pixels, prefs, dpr, jump_limit=0, angle=0, viewport=None):
         _, _, color = effect_palette(prefs)
         stroke, radius = effect_geometry(pixels, prefs.text_style, prefs.glow_variant)
         margin = stroke + radius + 3 / dpr
@@ -131,7 +131,7 @@ class TextEffects:
                 ink.translate(glyph.x, glyph.baseline)
                 bounds = bounds.united(ink)
             assets.append(asset)
-        bounds = bounds.toAlignedRect()
+        bounds = (viewport if viewport is not None else bounds).toAlignedRect()
         surface = LineSurface(glyphs, transparent_image(bounds, dpr), QPointF(bounds.x(), bounds.y()), assets, pixels)
         if prefs.animation_style != "classic" or prefs.singing_sync:
             self._materials(surface, prefs)
@@ -208,10 +208,14 @@ class TextEffects:
         painter = QPainter(surface.image)
         painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
         painter.translate(-surface.origin)
+        viewport = QRectF(surface.origin, surface.image.deviceIndependentSize())
 
         def draw(index, layer, opacity):
             material, state = materials[index], states[index]
             if material is None or state.opacity <= 0:
+                return
+            reach = max(material[0].width(), material[0].height()) / material[0].devicePixelRatio() * state.scale
+            if not viewport.intersects(QRectF(state.x-reach, state.y-reach, reach*2, reach*2)):
                 return
             painter.save()
             painter.translate(state.x, state.y)

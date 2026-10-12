@@ -708,6 +708,7 @@ class ControlPanel(QWidget):
         self.font_combo = QComboBox()
         self.font_combo.setMinimumWidth(100)
         self.font_combo.setAccessibleName("歌词字体")
+        self.font_combo.setMaxVisibleItems(18)
         self.import_font_button = QPushButton("导入字体")
         self.import_font_button.setToolTip("导入 TTF、OTF 或 TTC 字体；字体会保存到程序设置目录。")
         self.import_font_button.clicked.connect(lambda: self.import_font())
@@ -722,7 +723,7 @@ class ControlPanel(QWidget):
         self.preview_background.addItem("浅色背景", False)
         self.preview_background.currentIndexChanged.connect(lambda _: self.font_preview.set_background(self.preview_background.currentData()))
         self.font_status = label(self._font_message or ("部分导入字体无法加载，可重新导入。" if self.font_library.errors else
-                                 "支持 TTF、OTF、TTC；选择后立即生效并自动保存。"), "muted")
+                                 "列出本机字体；支持导入 TTF、OTF、TTC，选择后立即生效并自动保存。"), "muted")
         self.font_status.setWordWrap(True)
         self.translation_checkbox = QCheckBox("原文与中文翻译上下同时显示")
         self.translation_checkbox.setChecked(self.prefs.prefer_translation)

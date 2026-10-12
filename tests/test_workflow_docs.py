@@ -28,6 +28,13 @@ class WorkflowDocumentationTests(unittest.TestCase):
         image = QImageReader(str(ROOT / "docs/images/custom-regions-editor.png")).read()
         self.assertFalse(image.isNull())
 
+    def test_native_compatibility_update_is_in_readme_and_offline_guides(self):
+        for relative in ("README.md", "release/netease/安装教程.html", "release/netease/使用说明.txt"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            for phrase in ("本机字体", "原生歌词", "框内滚动"):
+                self.assertIn(phrase, text)
+            self.assertNotIn("跳过该句", text)
+
     def test_qq_autostart_release_describes_opt_in_disable_reuse_and_update(self):
         from app_info import APP_VERSION
         guide = (ROOT/'QQMUSIC.md').read_text(encoding='utf-8')

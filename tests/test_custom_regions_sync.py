@@ -37,7 +37,9 @@ class CustomRegionsTests(unittest.TestCase):
                            len({g.baseline for g in layouts[0].glyphs}))
         # A box that only fits after shrinking must no longer silently change the font.
         tiny = QRectF(0, 0, 100, 70)
-        self.assertIsNone(build_layout("字", 12, [tiny], [], prefs, anchor="top_left"))
+        clipped = build_layout("字", 12, [tiny], [], prefs, anchor="top_left")
+        self.assertEqual(clipped.font_size, prefs.font_size)
+        self.assertTrue(tiny.contains(clipped.bounds))
         self.assertIsNotNone(build_layout("字", 12, [tiny], [], replace(prefs, region="edges")))
 
     def test_six_regions_roundtrip_clamping_and_preset_independence(self):

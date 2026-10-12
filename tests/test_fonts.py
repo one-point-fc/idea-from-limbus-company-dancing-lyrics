@@ -21,6 +21,7 @@ class FontLibraryTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.library = FontLibrary(self.root / "fonts")
+        self.initial_choices = len(self.library.choices())
 
     def tearDown(self):
         self.library.close()
@@ -57,7 +58,7 @@ class FontLibraryTests(unittest.TestCase):
             with self.subTest(path=path.name), self.assertRaises(ValueError):
                 self.library.import_font(path)
         self.assertFalse(self.library.directory.exists())
-        self.assertEqual(len(self.library.choices()), 3)
+        self.assertEqual(len(self.library.choices()), self.initial_choices)
 
     def test_failed_copy_does_not_leave_font_registered_or_partial_file(self):
         with patch("fonts.Path.replace", side_effect=PermissionError("cannot save")), self.assertRaises(OSError):
@@ -81,7 +82,14 @@ class FontLibraryTests(unittest.TestCase):
         self.assertTrue(added)
         self.assertEqual(set(families), {FAMILY, "Floating Lyrics Second"})
         self.assertEqual(self.library.restore_family("Floating Lyrics Second"), ("Floating Lyrics Second", ""))
-        self.assertEqual(len(self.library.choices()), 5)
+        self.assertEqual(len(self.library.choices()), self.initial_choices + 2)
+
+    def test_installed_families_can_be_selected_and_restored(self):
+        self.library._system_families = {"Microsoft YaHei UI", "Arial", "@Arial"}
+        families = [choice.family for choice in self.library.choices()]
+        self.assertIn("Arial", families)
+        self.assertNotIn("@Arial", families)
+        self.assertEqual(self.library.restore_family("Arial"), ("Arial", ""))
 
     def test_opentype_cff_import_persists_and_reloads(self):
         family = "Floating Lyrics OpenType"

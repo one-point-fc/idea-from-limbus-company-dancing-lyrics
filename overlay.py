@@ -176,19 +176,25 @@ class LyricsOverlay(QWidget):
             remaining = item.end_ms - position
             drift = (8 * (1 - min(1, remaining / (600 * 100 / self.prefs.exit_speed)))
                      - 5 * (1 - min(1, age / (300 * 100 / self.prefs.entry_speed))))
-            if self.prefs.animation_style != "classic":
+            if self.prefs.animation_style != "classic" or layout.clip_rect is not None:
                 drift = 0
             painter.save()
             painter.setOpacity(item.opacity * self.prefs.opacity / 100)
             painter.translate(layout.center)
             painter.rotate(layout.angle)
             painter.translate(0, drift)
+            if layout.clip_rect is not None:
+                painter.setClipRect(layout.clip_rect)
             if layout.surface is None:
                 layout.surface = TEXT_EFFECTS.prepare(layout.glyphs, layout.font_size, self.prefs,
-                                                      self.devicePixelRatioF(), self.prefs.jump, layout.angle)
+                                                      self.devicePixelRatioF(), self.prefs.jump, layout.angle, layout.clip_rect)
             states = (glyph_states(layout.glyphs, self.prefs, item, position, energy, layout.font_size,
                                    self.seed + item.index * 7919, layout.angle)
-                      if self.prefs.animation_style != "classic" or self.prefs.singing_sync else None)
+                      if self.prefs.animation_style != "classic" or self.prefs.singing_sync or layout.clip_rect is not None else None)
+            if layout.clip_rect is not None:
+                next_start = (self.timeline.lines[item.index+1].start_ms
+                              if item.index+1 < len(self.timeline.lines) else self.player.duration)
+                states = layout.scroll_states(states, age / max(1, next_start - item.start_ms))
             image = TEXT_EFFECTS.render(layout.surface, self.prefs, seconds, energy, moving=True, states=states)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             painter.drawImage(layout.surface.origin, image)

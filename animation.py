@@ -1,4 +1,4 @@
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import math
 import random
 from PySide6.QtCore import QPointF, QRectF, QTextBoundaryFinder
@@ -42,6 +42,49 @@ class LineLayout:
     bounds: QRectF
     font_size: int
     surface: object = None
+    clip_rect: QRectF | None = None
+    scroll_spans: dict = field(default_factory=dict)
+
+    def scroll_states(self, states, progress):
+        progress = max(0., min(1., (progress - .1) / .8))
+        return [replace(state, x=state.x - self.scroll_spans.get(glyph.baseline, 0) * progress)
+                for glyph, state in zip(self.glyphs, states)]
+
+
+def _scroll_layout(text, region, prefs, angle, translation_start, anchor):
+    # Keep both font sizes. Long native lines scroll within a bounded two-row
+    # surface instead of allocating an image as wide as the complete sentence.
+    flat = text.replace("\r", " ").replace("\n", " ")
+    glyphs, _, height = _glyph_layout(flat, prefs.font_size, float("inf"),
+                                     prefs.font_family, translation_start)
+    stroke, glow = effect_geometry(prefs.font_size, prefs.text_style, prefs.glow_variant)
+    margin = stroke + glow + prefs.font_size * .1 + 4
+    box_h = min(region.height(), height + margin * 2 + prefs.jump * 2 + 16)
+    rad = math.radians(angle)
+    c, s = abs(math.cos(rad)), abs(math.sin(rad))
+    box_w = min((region.width() - box_h * s) / c,
+                (region.height() - box_h * c) / s if s else region.width())
+    if box_w < min(region.width(), prefs.font_size * 3):
+        angle, c, s, box_w = 0, 1, 0, region.width()
+    rotated_w, rotated_h = box_w * c + box_h * s, box_w * s + box_h * c
+    x = region.left() + rotated_w / 2 if not anchor or anchor.endswith("left") else region.right() - rotated_w / 2
+    y = (region.top() + rotated_h / 2 if not anchor or anchor.startswith("top") else
+         region.bottom() - rotated_h / 2 if anchor.startswith("bottom") else region.center().y())
+    clip = QRectF(-box_w / 2, -box_h / 2, box_w, box_h)
+    spans = {}
+    shifted = []
+    for baseline in dict.fromkeys(g.baseline for g in glyphs):
+        row = [g for g in glyphs if g.baseline == baseline]
+        ink = QRectF()
+        for glyph in row:
+            if not glyph.path.isEmpty():
+                ink = ink.united(glyph.path.boundingRect().translated(glyph.x, glyph.baseline))
+        spans[baseline] = max(0., ink.width() - max(1., box_w - margin * 2))
+        shift = clip.left() + margin - ink.left() if spans[baseline] else 0
+        shifted.extend(replace(g, x=g.x + shift) for g in row)
+    return LineLayout(shifted, QPointF(x, y), angle,
+                      QRectF(x - rotated_w / 2, y - rotated_h / 2, rotated_w, rotated_h),
+                      prefs.font_size, clip_rect=clip, scroll_spans=spans)
 
 
 def display_regions(width: int, height: int, mode: str, sentence_index: int = 0, prefs=None) -> list[QRectF]:
@@ -181,6 +224,8 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
                 if not any(bounds.intersects(rect.adjusted(-12, -12, 12, 12)) for rect in occupied):
                     return item
             break
+    if fallback is None and prefs.region == "custom" and regions:
+        return _scroll_layout(text, regions[0], prefs, angle, translation_start, anchor)
     if fallback is None and prefs.animation_style != "classic" and prefs.angle:
         # Very narrow bands with long imported glyphs may only fit without sentence tilt.
         return build_layout(text, seed, regions, occupied, replace(prefs, angle=0), translation_start, anchor)

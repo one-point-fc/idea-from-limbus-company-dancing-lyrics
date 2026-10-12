@@ -67,7 +67,9 @@ class FontLibrary:
                               family, family in available or family == DEFAULT_FONT_FAMILY)
                    for label, family in PRESET_FONTS]
         known = {choice.family for choice in presets}
-        return presets + [FontChoice(family + " · 已导入", family) for family in imported if family not in known]
+        return presets + [FontChoice(family + (" · 已导入" if family in imported else ""), family)
+                          for family in sorted(available - known, key=str.casefold)
+                          if not family.startswith("@")]
 
     def restore_family(self, requested):
         if any(choice.family == requested and choice.available for choice in self.choices()):

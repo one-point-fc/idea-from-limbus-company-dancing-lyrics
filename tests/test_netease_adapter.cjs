@@ -14,7 +14,7 @@ assert.equal(data.lyrics[0].time_ms,1500); // Do not apply NetEase's offset twic
 assert.equal(data.lyrics[1].text,'');
 assert.equal(data.song.artist,'测试歌手');
 assert.equal(adapter.snapshot({...state,playing:{...state.playing,playingState:1}},1500,true).playing,false);
-assert.deepEqual(adapter.lyricsFor(state,'another song'),[]);
+assert.equal(adapter.lyricsFor(state,'another song'),null);
 assert.deepEqual(adapter.lyricsFor({...state,'async:lyric':{...state['async:lyric'],displayType:'noLyric'}},'42'),[]);
 assert.equal(adapter.findStore(null),null);
 const store={getState:()=>state,subscribe:()=>{}};
@@ -79,7 +79,7 @@ for(const bad of [null,{},[{time:1,lyric:'English only'}],[{time:1,lyric:null}],
     assert.equal('translation' in adapter.attachTranslations([{time_ms:1000,text:'original'}],bad)[0],false);
 assert.equal('translation' in adapter.attachTranslations([{time_ms:1000,text:''}],[{time:1,lyric:'空白不可填充'}])[0],false);
 assert.equal('translation' in adapter.attachTranslations([{time_ms:1000,text:'original'}],[{time:.9,lyric:'歧义甲'},{time:1.1,lyric:'歧义乙'}])[0],false);
-assert.equal(adapter.lyricsFor({...bilingual,'async:lyric':{...bilingual['async:lyric'],resourceTrackId:'new'}},'42').length,0);
+assert.equal(adapter.lyricsFor({...bilingual,'async:lyric':{...bilingual['async:lyric'],resourceTrackId:'new'}},'42'),null);
 console.log('Optional Chinese translation, single offset, late data and fallback passed');
 
 const {findSongDetails}=require('../tools/client_metadata.cjs');
@@ -114,3 +114,10 @@ console.log('Both progress input layouts supported, missing inputs never pretend
     assert.equal(clock.sample('one',false).position,9000,'paused seek is authoritative');
     assert.equal(clock.sample('two',true).position,0,'song change clears the prior clock');
 }
+
+assert.equal(adapter.lyricsFor({...state,'async:lyric':{...state['async:lyric'],isLoading:true,lyricLines:[]}},'42'),null,
+    'loading is not an explicit empty lyric');
+const onlyYrc={...state,'async:lyric':{...state['async:lyric'],lyricLines:[],scrollable:true,
+    yrcInfo:{yrc:'[2000,1000](2000,1000,0)原生逐字歌词'}}};
+assert.equal(adapter.lyricsFor(onlyYrc,'42')[0].text,'原生逐字歌词');
+assert.equal(adapter.lyricsFor(onlyYrc,'42')[0].time_ms,1500);

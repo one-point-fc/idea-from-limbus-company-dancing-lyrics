@@ -6,13 +6,13 @@ const {LegacyLyricReader,lyricsFor,nativeLyricCache}=require('../plugins/netease
     const state=id=>({playing:{resourceTrackId:id,onlineResourceId:id},'async:lyric':{displayType:'default',lyricLines:[{time:1,lyric:'共享状态可能是旧歌词'}]}});
     const lyric=(id,text)=>({resourceTrackId:id,displayType:'default',lyricLines:[{time:1,lyric:text}]});
     const a=state('a'),b=state('b');
-    assert.deepEqual(lyricsFor(reader.state(a,100),'a'),[]);
+    assert.equal(lyricsFor(reader.state(a,100),'a'),null);
     await new Promise(setImmediate);
     reader.state(b,200);
     await new Promise(setImmediate);
     resolved.a(lyric('a','迟到的上一首'));
     await new Promise(setImmediate);
-    assert.deepEqual(lyricsFor(reader.state(b,250),'b'),[]);
+    assert.equal(lyricsFor(reader.state(b,250),'b'),null);
     assert.equal(updates.length,0,'切歌后迟到的缓存不能绑定新歌');
     resolved.b(lyric('b','当前歌词'));
     await new Promise(setImmediate);
@@ -24,7 +24,7 @@ const {LegacyLyricReader,lyricsFor,nativeLyricCache}=require('../plugins/netease
     resolved.b(lyric('wrong','错误缓存'));
     await new Promise(setImmediate);
     assert.equal(lyricsFor(reader.state(b,450),'b')[0].text,'当前歌词');
-    assert.deepEqual(lyricsFor(reader.state({playing:{resourceTrackId:'local',onlineResourceId:''}},500),'local'),[]);
+    assert.equal(lyricsFor(reader.state({playing:{resourceTrackId:'local',onlineResourceId:''}},500),'local'),null);
     const raw={code:200,lrc:{lyric:'fixture',offset:1000}};
     let requested;
     function format(raw){return {currentUsedLyricVersion:1,yrcInfo:{},displayType:'default',offset:raw.lrc.offset,lyricLines:[{time:1,lyric:raw.lrc.lyric}]};}
