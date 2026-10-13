@@ -12,7 +12,7 @@ DOCUMENTS = tuple(ROOT / name for name in ("AGENTS.md", "CHANGELOG.md", "README.
                                          "产品设计方案.md", "技术文档.md", "THIRD_PARTY_NOTICES.md",
                                          "docs/传播文案.md", "release/release-notes.md", "MACOS.md",
                                          "release/macos/release-notes.md", "QQMUSIC.md",
-                                         "docs/QQ歌词缓存研究.md"))
+                                         "docs/QQ歌词缓存研究.md", "docs/客户端兼容维护.md"))
 
 
 class WorkflowDocumentationTests(unittest.TestCase):
@@ -34,6 +34,13 @@ class WorkflowDocumentationTests(unittest.TestCase):
             for phrase in ("本机字体", "原生歌词", "框内滚动"):
                 self.assertIn(phrase, text)
             self.assertNotIn("跳过该句", text)
+
+    def test_custom_guides_follow_current_upstream_release(self):
+        from app_info import APP_VERSION
+        for relative in ("README.md", "release/netease/安装教程.html", "release/netease/使用说明.txt"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            for phrase in (APP_VERSION, "恢复网易云联动.bat", "取消", "实验性安装", "2026-10-14"):
+                self.assertIn(phrase, text)
 
     def test_qq_autostart_release_describes_opt_in_disable_reuse_and_update(self):
         from app_info import APP_VERSION

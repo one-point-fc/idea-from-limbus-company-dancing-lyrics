@@ -39,6 +39,8 @@ const adapter=require('../plugins/netease/adapter.js');
     assert.equal(sent.at(-1).client,'3.1.40','发送真实客户端版本，不能硬编码成 3.1.41');
     registered.Seek('live','seek',0,12.5);
     assert.equal(sent.at(-1).position_ms,12500);
+    assert.equal(sent.at(-1).adapter,'state','Adaptive selection must coexist with native-clock alignment');
+    assert.ok(Number.isFinite(sent.at(-1).position_at_ms));
     assert.equal(sent.at(-1).seek,true);
     assert.equal('lyrics' in sent.at(-1),false,'暂停或跳转不能重新随机排布未变化的歌词');
     registered.PlayProgress('old-song',50);
