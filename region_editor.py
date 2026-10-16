@@ -4,15 +4,18 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
                               QCheckBox, QComboBox, QLabel, QDoubleSpinBox, QDialogButtonBox, QPushButton)
 from regions import REGION_NAMES, DEFAULT_BOXES_JSON, region_boxes, selected_regions
+from screens import select_screen
+from PySide6.QtWidgets import QApplication
 
 
 class RegionCanvas(QWidget):
     changed = Signal()
     selected = Signal(str)
 
-    def __init__(self, boxes, enabled, parent=None):
+    def __init__(self, boxes, enabled, parent=None, display_screen="primary"):
         super().__init__(parent)
         self.boxes, self.enabled = boxes, enabled
+        self.display_screen = display_screen
         self.current = next(iter(REGION_NAMES))
         self.drag = None
         self.setMinimumSize(460, 250)
@@ -20,7 +23,9 @@ class RegionCanvas(QWidget):
 
     def screen_rect(self):
         available = QRectF(self.rect()).adjusted(10, 10, -10, -10)
-        ratio = self.screen().availableGeometry().width() / self.screen().availableGeometry().height()
+        screen = select_screen(QApplication.screens(), QApplication.primaryScreen(), self.display_screen)
+        area = screen.availableGeometry()
+        ratio = area.width() / area.height()
         width = min(available.width(), available.height() * ratio)
         height = width / ratio
         return QRectF(available.center().x()-width/2, available.center().y()-height/2, width, height)
@@ -102,7 +107,7 @@ class RegionEditor(QDialog):
             self.checkboxes[key] = checkbox
             grid.addWidget(checkbox, index//2, index%2)
         layout.addLayout(grid)
-        self.canvas = RegionCanvas(self.boxes, self.enabled)
+        self.canvas = RegionCanvas(self.boxes, self.enabled, display_screen=prefs.display_screen)
         layout.addWidget(self.canvas, 1)
         row = QHBoxLayout()
         self.selector = QComboBox()

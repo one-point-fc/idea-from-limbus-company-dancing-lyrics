@@ -39,8 +39,11 @@ class WorkflowDocumentationTests(unittest.TestCase):
         from app_info import APP_VERSION
         for relative in ("README.md", "release/netease/安装教程.html", "release/netease/使用说明.txt"):
             text = (ROOT / relative).read_text(encoding="utf-8")
-            for phrase in (APP_VERSION, "恢复网易云联动.bat", "取消", "实验性安装", "2026-10-14"):
+            for phrase in (APP_VERSION, "恢复网易云联动.bat", "取消", "实验性安装", "2026-10-16"):
                 self.assertIn(phrase, text)
+        for relative in ("README.md", "release/netease/安装教程.html"):
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            self.assertIn("所选显示器的可用区域", text)
 
     def test_qq_autostart_release_describes_opt_in_disable_reuse_and_update(self):
         from app_info import APP_VERSION

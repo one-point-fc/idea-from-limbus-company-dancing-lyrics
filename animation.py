@@ -4,7 +4,7 @@ import random
 from PySide6.QtCore import QPointF, QRectF, QTextBoundaryFinder
 from PySide6.QtGui import QFontMetricsF, QPainterPath
 from fonts import lyric_font
-from settings import DEFAULT_FONT_FAMILY, Preferences
+from settings import DEFAULT_FONT_FAMILY, Preferences, display_mode
 from text_effects import effect_geometry
 from glyph_motion import motion_bounds
 from regions import selected_regions, region_boxes
@@ -32,6 +32,9 @@ class Glyph:
     effect_key: tuple | None = None
     text_start: int = 0
     text_end: int = 0
+    pixels: int = 0
+    language: int = 0
+    cell_width: float = 0
 
 
 @dataclass
@@ -51,12 +54,12 @@ class LineLayout:
                 for glyph, state in zip(self.glyphs, states)]
 
 
-def _scroll_layout(text, region, prefs, angle, translation_start, anchor):
+def _scroll_layout(text, region, prefs, angle, secondary_start, anchor):
     # Keep both font sizes. Long native lines scroll within a bounded two-row
     # surface instead of allocating an image as wide as the complete sentence.
     flat = text.replace("\r", " ").replace("\n", " ")
     glyphs, _, height = _glyph_layout(flat, prefs.font_size, float("inf"),
-                                     prefs.font_family, translation_start)
+                                     prefs.font_family, secondary_start, display_mode(prefs) == "bilingual_translation")
     stroke, glow = effect_geometry(prefs.font_size, prefs.text_style, prefs.glow_variant)
     margin = stroke + glow + prefs.font_size * .1 + 4
     box_h = min(region.height(), height + margin * 2 + prefs.jump * 2 + 16)
@@ -106,18 +109,24 @@ def display_regions(width: int, height: int, mode: str, sentence_index: int = 0,
     return [QRectF(pad, pad, width - 2 * pad, height - 2 * pad)]
 
 
-def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAULT_FONT_FAMILY,
-                  translation_start: int | None = None):
-    if translation_start is not None:
-        original, original_w, original_h = _glyph_layout(text[:translation_start - 1], pixels, max_width, family)
-        translated, translated_w, translated_h = _glyph_layout(
-            text[translation_start:], max(8, round(pixels * .75)), max_width, family)
-        gap = max(6, pixels * .3)
-        glyphs = [replace(glyph, baseline=glyph.baseline - (translated_h + gap) / 2) for glyph in original]
-        glyphs += [replace(glyph, baseline=glyph.baseline + (original_h + gap) / 2,
-                           index=glyph.index + len(original), text_start=glyph.text_start + translation_start,
-                           text_end=glyph.text_end + translation_start) for glyph in translated]
-        return glyphs, max(original_w, translated_w), original_h + gap + translated_h
+def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAULT_FONT_FAMILY, secondary_start=-1, translation_first=False):
+    if secondary_start >= 0:
+        primary_pixels = max(8, round(pixels * .75)) if translation_first else pixels
+        primary, w1, h1 = _glyph_layout(text[:secondary_start-1], primary_pixels, max_width, family)
+        secondary_pixels = pixels if translation_first else max(8, round(pixels * .75))
+        secondary, w2, h2 = _glyph_layout(text[secondary_start:], secondary_pixels, max_width, family)
+        height = h1 + pixels * .25 + h2
+        for glyph in primary:
+            glyph.baseline += -height / 2 + h1 / 2
+            glyph.pixels = primary_pixels
+        for index, glyph in enumerate(secondary):
+            glyph.baseline += height / 2 - h2 / 2
+            glyph.text_start += secondary_start
+            glyph.text_end += secondary_start
+            glyph.index = len(primary) + index
+            glyph.language = 1
+            glyph.pixels = secondary_pixels
+        return primary + secondary, max(w1, w2), height
     font = lyric_font(family, pixels)
     metrics = QFontMetricsF(font)
     rows = [[]]
@@ -147,7 +156,7 @@ def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAUL
             path = QPainterPath()
             if not char.isspace():
                 path.addText(QPointF(-advance / 2, 0), font, char)
-            glyphs.append(Glyph(path, x + advance / 2, baseline, index, text_start=start, text_end=end))
+            glyphs.append(Glyph(path, x + advance / 2, baseline, index, text_start=start, text_end=end, cell_width=advance))
             x += advance
             index += 1
     width = max(widths, default=0)
@@ -160,7 +169,7 @@ def _glyph_layout(text: str, pixels: int, max_width: float, family: str = DEFAUL
 
 
 def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRectF],
-                 prefs: Preferences, translation_start: int | None = None, anchor: str | None = None) -> LineLayout | None:
+                 prefs: Preferences, secondary_start=-1, anchor: str | None = None) -> LineLayout | None:
     rng = random.Random(seed)
     regions = list(regions)
     rng.shuffle(regions)
@@ -174,8 +183,7 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
                 reserve += prefs.jump * .6 + 8
                 if prefs.animation_style.startswith("fall_"):
                     reserve += prefs.fall_distance * pixels / 32 * abs(math.sin(math.radians(angle)))
-            glyphs, width, height = _glyph_layout(text, pixels, max(10, region.width() - reserve),
-                                                prefs.font_family, translation_start)
+            glyphs, width, height = _glyph_layout(text, pixels, max(10, region.width() - reserve), prefs.font_family, secondary_start, display_mode(prefs) == "bilingual_translation")
             # Include stroke, character scale, jumping and fade-out drift.
             stroke, glow = effect_geometry(pixels, prefs.text_style, prefs.glow_variant)
             margin = stroke + glow + 4
@@ -225,8 +233,8 @@ def build_layout(text: str, seed: int, regions: list[QRectF], occupied: list[QRe
                     return item
             break
     if fallback is None and prefs.region == "custom" and regions:
-        return _scroll_layout(text, regions[0], prefs, angle, translation_start, anchor)
+        return _scroll_layout(text, regions[0], prefs, angle, secondary_start, anchor)
     if fallback is None and prefs.animation_style != "classic" and prefs.angle:
         # Very narrow bands with long imported glyphs may only fit without sentence tilt.
-        return build_layout(text, seed, regions, occupied, replace(prefs, angle=0), translation_start, anchor)
+        return build_layout(text, seed, regions, occupied, replace(prefs, angle=0), secondary_start, anchor)
     return fallback  # Overlay drops conflicting older instances in this rare case.

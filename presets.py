@@ -8,7 +8,7 @@ from settings import Preferences, normalize_preferences
 from fonts import PRESET_FONTS
 
 EFFECT_KEYS = tuple(key for key in asdict(Preferences()) if key not in ("region", "selected_regions", "region_boxes",
-    "native_line_sync", "delay_ms", "volume", "theme", "prefer_translation", "qq_cache_directory"))
+    "native_line_sync", "display_screen", "delay_ms", "volume", "theme", "prefer_translation", "lyric_display_mode", "hide_instrumental", "qq_cache_directory"))
 
 
 def effect_values(prefs):

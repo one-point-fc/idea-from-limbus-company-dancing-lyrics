@@ -1,6 +1,7 @@
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import sys
+import json
 from PySide6.QtCore import QSettings
 from PySide6.QtGui import QColor
 from regions import DEFAULT_BOXES_JSON, DEFAULT_SELECTION, region_boxes, selected_regions
@@ -37,19 +38,25 @@ class Preferences:
     selected_regions: str = DEFAULT_SELECTION
     region_boxes: str = DEFAULT_BOXES_JSON
     native_line_sync: bool = True
+    display_screen: str = "primary"
     delay_ms: int = 0
     volume: int = 45
     motion: str = "audio"
     text_style: str = "glow"
     glow_strength: int = 60
     glow_variant: str = "standard"
+    gradient_colors: str = '["#ff78bb","#68b6f5"]'
+    gradient_direction: str = "horizontal"
     animation_style: str = "classic"
+    scramble_exit: bool = False
     entry_speed: int = 100
     exit_speed: int = 100
     shake_frequency: int = 6
     fall_distance: int = 48
     singing_sync: bool = False
     prefer_translation: bool = False
+    lyric_display_mode: str = "legacy"
+    hide_instrumental: bool = False
     theme: str = "light"
     qq_cache_directory: str = ""
 
@@ -89,17 +96,30 @@ def normalize_preferences(prefs):
         setattr(prefs, key, max(low, min(high, getattr(prefs, key))))
     if prefs.region not in ("edges", "full", "top_alternate", "custom"):
         prefs.region = "edges"
-    import json
     prefs.selected_regions = ",".join(selected_regions(prefs.selected_regions))
     prefs.region_boxes = json.dumps(region_boxes(prefs.region_boxes))
+    if not prefs.display_screen or len(prefs.display_screen) > 1024 or any(c in prefs.display_screen for c in "\x00\n\r"):
+        prefs.display_screen = "primary"
     if prefs.motion not in ("audio", "wave"):
         prefs.motion = "audio"
-    if prefs.text_style not in ("glow", "solid"):
+    if prefs.text_style not in ("glow", "solid", "gradient_fill"):
         prefs.text_style = "glow"
-    if prefs.glow_variant not in ("standard", "carmen"):
+    if prefs.glow_variant not in ("standard", "carmen", "gradient"):
         prefs.glow_variant = "standard"
+    try:
+        colors = json.loads(prefs.gradient_colors)
+        if not isinstance(colors, list) or len(colors) not in (2, 3) or not all(
+                isinstance(color, str) and len(color) == 7 and color.startswith("#") and QColor(color).isValid() for color in colors):
+            raise ValueError()
+        prefs.gradient_colors = json.dumps([QColor(color).name() for color in colors], separators=(",", ":"))
+    except (ValueError, TypeError):
+        prefs.gradient_colors = '["#ff78bb","#68b6f5"]'
+    if prefs.gradient_direction not in ("horizontal", "vertical", "diagonal"):
+        prefs.gradient_direction = "horizontal"
     if prefs.animation_style not in ANIMATION_STYLES:
         prefs.animation_style = "classic"
+    if prefs.lyric_display_mode not in ("legacy", "original", "translation", "bilingual_original", "bilingual_translation"):
+        prefs.lyric_display_mode = "legacy"
     if prefs.theme not in ("light", "dark", "special"):
         prefs.theme = "light"
     if not QColor(prefs.color).isValid():
@@ -111,3 +131,7 @@ def normalize_preferences(prefs):
     if not prefs.font_family or len(prefs.font_family) > 256 or any(c in prefs.font_family for c in "\n\r\x00"):
         prefs.font_family = DEFAULT_FONT_FAMILY
     return prefs
+
+
+def display_mode(prefs):
+    return ("bilingual_original" if prefs.prefer_translation else "original") if prefs.lyric_display_mode == "legacy" else prefs.lyric_display_mode

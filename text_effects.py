@@ -1,18 +1,20 @@
 """Shared, bounded glyph glow cache and reusable per-line compositing surfaces."""
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 import numpy as np
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImage, QPainter, QPen
-from glyph_motion import motion_bounds
+from glyph_motion import motion_bounds, GlyphState
+import gradients
+import scramble
 
 
 def effect_geometry(pixels, style, variant="standard"):
     """Visible outside stroke and finite glow support, in logical pixels."""
     if style == "glow" and variant == "carmen":
         return (.65 * pixels / 32, 12 * pixels / 32)
-    return (1.2 * pixels / 32, 8 * pixels / 32) if style == "glow" else (1.2, 0)
+    return (1.2 * pixels / 32, 8 * pixels / 32) if style != "solid" else (1.2, 0)
 
 
 def effect_palette(prefs):
@@ -60,18 +62,33 @@ class LineSurface:
     pixels: int
     materials: object = None
     material_key: object = None
+    gradient_bounds: object = None
+    gradient_regions: object = None
+    replacements: object = None
+    replacement_scales: object = None
 
 
 class TextEffects:
     def __init__(self, limit_bytes=64 * 1024 * 1024):
         self.limit_bytes = limit_bytes
         self.cache = OrderedDict()
+        self.replacement_cache = OrderedDict()
         self.cache_bytes = 0
         self.hits = self.misses = 0
 
     def clear(self):
         self.cache.clear()
+        self.replacement_cache.clear()
         self.cache_bytes = 0
+
+    def _reserve(self, size):
+        while self.cache_bytes + size > self.limit_bytes and (self.cache or self.replacement_cache):
+            if self.cache:
+                previous, _ = self.cache.popitem(last=False)[1]
+                self.cache_bytes -= previous.sizeInBytes()
+            else:
+                previous = self.replacement_cache.popitem(last=False)[1]
+                self.cache_bytes -= previous[0].sizeInBytes() + previous[1].sizeInBytes()
 
     def glow(self, glyph, pixels, family, color, dpr, variant="standard"):
         path = glyph.path
@@ -108,21 +125,33 @@ class TextEffects:
         asset = (image, QPointF(bounds.x(), bounds.y()))
         size = image.sizeInBytes()
         if size <= self.limit_bytes:
-            while self.cache and self.cache_bytes + size > self.limit_bytes:
-                previous, _ = self.cache.popitem(last=False)[1]
-                self.cache_bytes -= previous.sizeInBytes()
+            self._reserve(size)
             self.cache[key] = asset
             self.cache_bytes += size
         return asset
 
-    def prepare(self, glyphs, pixels, prefs, dpr, jump_limit=0, angle=0, viewport=None):
+    def prepare(self, glyphs, pixels, prefs, dpr, jump_limit=0, angle=0, viewport=None, _regions=None, _replacements=True):
         _, _, color = effect_palette(prefs)
         stroke, radius = effect_geometry(pixels, prefs.text_style, prefs.glow_variant)
         margin = stroke + radius + 3 / dpr
         bounds = QRectF()
         assets = []
+        gradient_bounds = QRectF()
+        gradient_regions = {0: QRectF(), 1: QRectF()}
         for glyph in glyphs:
-            asset = self.glow(glyph, pixels, prefs.font_family, color, dpr, prefs.glow_variant) if prefs.text_style == "glow" else None
+            if not glyph.path.isEmpty():
+                ink = glyph.path.boundingRect().translated(glyph.x, glyph.baseline)
+                gradient_bounds = gradient_bounds.united(ink)
+                gradient_regions[glyph.language] = gradient_regions[glyph.language].united(ink)
+        if _regions is not None:
+            gradient_regions = _regions
+        for glyph in glyphs:
+            glyph_pixels = glyph.pixels or pixels
+            gradient_outline = prefs.text_style == "glow" and prefs.glow_variant == "gradient"
+            asset = self.glow(glyph, glyph_pixels, prefs.font_family, QColor("white") if gradient_outline else color,
+                              dpr, prefs.glow_variant) if prefs.text_style != "solid" else None
+            if asset and gradient_outline:
+                asset = (gradients.tint(asset[0], asset[1], glyph, gradient_regions[glyph.language], prefs), asset[1])
             if not glyph.path.isEmpty():
                 ink = glyph.path.boundingRect().adjusted(-margin, -margin, margin, margin)
                 if asset:
@@ -133,8 +162,49 @@ class TextEffects:
             assets.append(asset)
         bounds = (viewport if viewport is not None else bounds).toAlignedRect()
         surface = LineSurface(glyphs, transparent_image(bounds, dpr), QPointF(bounds.x(), bounds.y()), assets, pixels)
-        if prefs.animation_style != "classic" or prefs.singing_sync:
+        surface.gradient_bounds = gradient_bounds
+        surface.gradient_regions = gradient_regions
+        if prefs.animation_style != "classic" or prefs.singing_sync or gradients.enabled(prefs) or prefs.scramble_exit:
             self._materials(surface, prefs)
+        if prefs.scramble_exit and _replacements:
+            variants = []
+            variant_scales = []
+            for glyph in glyphs:
+                if glyph.path.isEmpty():
+                    variants.append(None)
+                    variant_scales.append(None)
+                    continue
+                center = glyph.path.boundingRect().center()
+                paths = scramble.paths(prefs.font_family, glyph.pixels or pixels, glyph.cell_width or glyph.path.boundingRect().width(), center.x(), center.y())
+                items = []
+                scales = []
+                region = gradient_regions[glyph.language]
+                for index, path in enumerate(paths):
+                    scales.append(min(1, max(1, glyph.cell_width or glyph.path.boundingRect().width()) / max(1, path.boundingRect().width())))
+                    key = (prefs.font_family, glyph.pixels or pixels, glyph.cell_width, center.x(), center.y(), glyph.x, glyph.baseline,
+                           dpr, prefs.text_style, prefs.glow_variant, prefs.color, prefs.gradient_colors, prefs.gradient_direction,
+                           prefs.glow_strength, prefs.singing_sync, region.getRect(), index)
+                    material = self.replacement_cache.get(key)
+                    if material is None:
+                        variant = replace(glyph, path=path, effect_key=None)
+                        prepared = self.prepare([variant], pixels, prefs, dpr, _regions=gradient_regions, _replacements=False)
+                        material = self._materials(prepared, prefs)[0]
+                        size = material[0].sizeInBytes() + material[1].sizeInBytes()
+                        if size <= self.limit_bytes:
+                            self._reserve(size)
+                            self.replacement_cache[key] = material
+                            self.cache_bytes += size
+                    else:
+                        self.replacement_cache.move_to_end(key)
+                    items.append(material)
+                    if viewport is None:
+                        bounds = bounds.united(QRectF(QPointF(material[2]) + QPointF(glyph.x, glyph.baseline), material[0].deviceIndependentSize()).toAlignedRect())
+                variants.append(items)
+                variant_scales.append(scales)
+            surface.replacements = variants
+            surface.replacement_scales = variant_scales
+            surface.origin = QPointF(bounds.x(), bounds.y())
+            surface.image = transparent_image(bounds, dpr)
         return surface
 
     def _materials(self, surface, prefs):
@@ -143,7 +213,8 @@ class TextEffects:
         Disjoint halo/body pixels allow all halos to precede the white cores.
         A body knockout excludes neighbouring halos underneath fading white ink.
         """
-        key = (prefs.text_style, prefs.color, prefs.glow_strength, prefs.singing_sync, prefs.glow_variant)
+        key = (prefs.text_style, prefs.color, prefs.glow_strength, prefs.singing_sync, prefs.glow_variant,
+               prefs.gradient_colors, prefs.gradient_direction)
         if surface.material_key == key:
             return surface.materials
         materials = []
@@ -154,6 +225,8 @@ class TextEffects:
             if glyph.path.isEmpty():
                 materials.append(None)
                 continue
+            glyph_pixels = glyph.pixels or surface.pixels
+            stroke, radius = effect_geometry(glyph_pixels, prefs.text_style, prefs.glow_variant)
             glow = surface.assets[index]
             if glow:
                 origin = glow[1]
@@ -169,13 +242,20 @@ class TextEffects:
                 painter.setOpacity(prefs.glow_strength / 100)
                 painter.drawImage(origin, glow[0])
             painter.setOpacity(1)
-            painter.setPen(QPen(outline if prefs.text_style == "glow" else QColor(10, 22, 26, 210),
+            region = surface.gradient_regions[glyph.language]
+            outline_brush = gradients.brush(region, glyph, prefs) if prefs.text_style == "glow" and prefs.glow_variant == "gradient" else outline
+            painter.setPen(QPen(outline_brush if prefs.text_style != "solid" else QColor(10, 22, 26, 210),
                                 stroke * 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-            painter.setBrush(Qt.BrushStyle.NoBrush if prefs.text_style == "glow" else QColor(prefs.color))
+            painter.setBrush(Qt.BrushStyle.NoBrush if prefs.text_style != "solid" else QColor(prefs.color))
+            if prefs.text_style == "glow" and prefs.glow_variant == "gradient":
+                painter.save()
+                painter.translate(.75 * glyph_pixels / 32, .75 * glyph_pixels / 32)
+                painter.drawPath(glyph.path)
+                painter.restore()
             painter.drawPath(glyph.path)
-            if prefs.text_style == "glow":
+            if prefs.text_style != "solid":
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(core)
+                painter.setBrush(gradients.brush(region, glyph, prefs) if prefs.text_style == "gradient_fill" else core)
                 painter.drawPath(glyph.path)
             painter.end()
             painter = QPainter(mask)
@@ -184,6 +264,11 @@ class TextEffects:
             painter.setPen(QPen(Qt.GlobalColor.white, stroke * 2, Qt.PenStyle.SolidLine,
                                 Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
             painter.setBrush(Qt.GlobalColor.white)
+            if prefs.text_style == "glow" and prefs.glow_variant == "gradient":
+                painter.save()
+                painter.translate(.75 * glyph_pixels / 32, .75 * glyph_pixels / 32)
+                painter.drawPath(glyph.path)
+                painter.restore()
             painter.drawPath(glyph.path)
             painter.end()
             body_pixels = pixels_view(mask)[:, :, 3] > 0
@@ -212,6 +297,10 @@ class TextEffects:
 
         def draw(index, layer, opacity):
             material, state = materials[index], states[index]
+            fit = 1
+            if state.replacement >= 0 and surface.replacements and surface.replacements[index]:
+                material = surface.replacements[index][state.replacement]
+                fit = surface.replacement_scales[index][state.replacement]
             if material is None or state.opacity <= 0:
                 return
             reach = max(material[0].width(), material[0].height()) / material[0].devicePixelRatio() * state.scale
@@ -220,14 +309,14 @@ class TextEffects:
             painter.save()
             painter.translate(state.x, state.y)
             painter.rotate(state.rotation)
-            painter.scale(state.scale, state.scale)
+            painter.scale(state.scale * fit, state.scale * fit)
             painter.setOpacity(opacity)
             painter.drawImage(material[2], material[layer])
             painter.restore()
 
         for index, state in enumerate(states):
             gain = 1
-            if prefs.singing_sync and prefs.text_style == "glow" and prefs.glow_strength:
+            if prefs.singing_sync and prefs.text_style != "solid" and prefs.glow_strength:
                 peak = min(100, prefs.glow_strength * 1.4)
                 gain = (prefs.glow_strength + (peak - prefs.glow_strength) * state.emphasis) / peak
             draw(index, 0, state.opacity * gain)
@@ -241,6 +330,10 @@ class TextEffects:
         return surface.image
 
     def render(self, surface, prefs, seconds=0, energy=0, moving=False, states=None):
+        if states is None and gradients.enabled(prefs):
+            states = [GlyphState(glyph.x, glyph.baseline - prefs.jump * energy *
+                                (0.6 + 0.4 * math.sin(seconds * 8 - glyph.index * .6)) if moving else glyph.baseline,
+                                scale=1 + .04 * energy if moving else 1) for glyph in surface.glyphs]
         if states is not None:
             return self._render_states(surface, prefs, states)
         surface.image.fill(Qt.GlobalColor.transparent)

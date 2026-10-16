@@ -23,6 +23,7 @@ class LyricLine:
     text: str
     words: tuple[TimedWord, ...] = ()
     translation: str = ""
+    secondary_start: int = -1
 
 
 @dataclass
@@ -30,6 +31,7 @@ class LyricDocument:
     lines: list[LyricLine]
     warnings: list[str]
     offset_ms: int = 0
+    instrumental: bool = False
 
 
 def chinese_translation(text):
@@ -38,15 +40,37 @@ def chinese_translation(text):
             and any('\u3400' <= c <= '\u9fff' or '\U00020000' <= c <= '\U0003134f' for c in text))
 
 
-def display_document(document, prefer_translation=False):
-    if document is None or not prefer_translation:
+def instrumental_document(document):
+    if document is None:
+        return False
+    if document.instrumental:
+        return True
+    texts = [re.sub(r"[\s，,。.!！:：]", "", line.text) for line in document.lines if line.text.strip()]
+    markers = {"纯音乐请欣赏", "纯音乐请您欣赏", "此歌曲为没有填词的纯音乐"}
+    return bool(texts) and all(text in markers for text in texts)
+
+
+def display_document(document, prefer_translation=False, mode=None, hide_instrumental=False):
+    if hide_instrumental and instrumental_document(document):
+        return None
+    mode = mode or ("bilingual_original" if prefer_translation else "original")
+    if document is None or mode == "original":
         return document
-    # Keep original offsets/timings: translated glyphs follow the original text
-    # and therefore never inherit an original word's emphasis.
-    lines = [replace(line, text=line.text + "\n" + line.translation.strip())
-             if line.text.strip() and chinese_translation(line.translation)
-             and line.translation.strip() != line.text.strip() else line for line in document.lines]
-    return LyricDocument(lines, list(document.warnings), document.offset_ms)
+    lines = []
+    for line in document.lines:
+        if not line.text.strip() or not chinese_translation(line.translation) or line.text.strip() == line.translation.strip():
+            lines.append(line)
+            continue
+        translation = line.translation.strip()
+        if mode == "translation":
+            lines.append(replace(line, text=translation, words=()))
+        else:
+            primary, secondary = (translation, line.text) if mode == "bilingual_translation" else (line.text, translation)
+            start = len(primary) + 1
+            words = tuple(replace(word, text_start=word.text_start+start, text_end=word.text_end+start)
+                          for word in line.words) if mode == "bilingual_translation" else line.words
+            lines.append(replace(line, text=primary + "\n" + secondary, words=words, secondary_start=start))
+    return LyricDocument(lines, list(document.warnings), document.offset_ms, document.instrumental)
 
 
 def parse_lrc(text: str) -> LyricDocument:
@@ -103,12 +127,13 @@ class ActiveLine:
     entry_end_ms: float = 0
     exit_start_ms: float = 0
     words: tuple[TimedWord, ...] = ()
+    secondary_start: int = -1
 
 
 class LyricTimeline:
     """Position is authoritative: pause and seek need no event replay."""
     def __init__(self, document: LyricDocument, delay_ms: int = 0, animation_style: str = "classic",
-                 entry_speed: int = 100, exit_speed: int = 100, align_boundaries: bool = False):
+                 entry_speed: int = 100, exit_speed: int = 100, scramble_exit: bool = False, align_boundaries: bool = False):
         # A positive LRC offset advances timestamps; a positive UI delay postpones them.
         shift = delay_ms - document.offset_ms
         self.lines = [replace(line, start_ms=line.start_ms + shift,
@@ -117,6 +142,7 @@ class LyricTimeline:
         self.starts = [line.start_ms for line in self.lines]
         self.animation_style = animation_style
         self.align_boundaries = align_boundaries
+        self.scramble_exit = scramble_exit
         self.entry_duration = 700 * 100 / entry_speed
         self.exit_duration = 600 * 100 / exit_speed
         self.classic_entry = 300 * 100 / entry_speed
@@ -128,7 +154,8 @@ class LyricTimeline:
         if duration > 0:
             boundary = min(boundary, duration)
         interval = max(0, boundary - line.start_ms)
-        entry_end = line.start_ms if self.align_boundaries else line.start_ms + min(self.entry_duration, interval * .35)
+        entry_end = line.start_ms if self.align_boundaries else line.start_ms + min(
+            self.classic_entry if self.animation_style == "classic" else self.entry_duration, interval * .35)
         if following and following.text and boundary < (duration or float("inf")):
             next_boundary = (self.lines[index + 2].start_ms if index + 2 < len(self.lines)
                              else duration or following.start_ms + 6000)
@@ -139,7 +166,7 @@ class LyricTimeline:
         else:
             end = boundary
             exit_start = end - min(self.exit_duration, interval * .3)
-        return ActiveLine(index, line.text, line.start_ms, end, 1, entry_end, exit_start, line.words)
+        return ActiveLine(index, line.text, line.start_ms, end, 1, entry_end, exit_start, line.words, line.secondary_start)
 
     def visible(self, position_ms: float, duration_ms: int = 0) -> list[ActiveLine]:
         index = bisect_right(self.starts, position_ms) - 1
@@ -148,7 +175,7 @@ class LyricTimeline:
             line = self.lines[i]
             if not line.text:
                 continue
-            if self.animation_style != "classic":
+            if self.animation_style != "classic" or self.scramble_exit:
                 item = self._animated_window(i, duration_ms)
                 if item.start_ms <= position_ms < item.end_ms and item.end_ms > item.start_ms:
                     active.append(item)
@@ -169,7 +196,7 @@ class LyricTimeline:
             fade_out = min(self.exit_duration, life / 2)
             opacity = max(0.0, min(1.0, 1.0 if self.align_boundaries else age / fade_in,
                                    (end - position_ms) / fade_out))
-            active.append(ActiveLine(i, line.text, line.start_ms, end, opacity, words=line.words))
+            active.append(ActiveLine(i, line.text, line.start_ms, end, opacity, words=line.words, secondary_start=line.secondary_start))
         return active
 
 

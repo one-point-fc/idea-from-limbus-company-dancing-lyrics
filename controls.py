@@ -4,21 +4,23 @@ import sys
 if sys.platform == "win32":
     from ctypes import wintypes
 import logging
+import json
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, QTimer, QElapsedTimer, QSignalBlocker
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPalette, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QColorDialog, QComboBox, QFileDialog, QFormLayout,
+    QApplication, QButtonGroup, QColorDialog, QComboBox as QtComboBox, QFileDialog, QFormLayout,
     QFrame, QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QSizePolicy, QInputDialog, QMessageBox, QCheckBox,
-    QSlider, QSpinBox, QStackedWidget, QStyle, QStyleOptionSlider, QSystemTrayIcon, QVBoxLayout, QWidget,
+    QSlider as QtSlider, QSpinBox as QtSpinBox, QStackedWidget, QStyle, QStyleOptionSlider, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
-from lrc import load_lrc, ActiveLine, TimedWord, word_timing_status, display_document
+from lrc import load_lrc, ActiveLine, TimedWord, LyricLine, LyricDocument, word_timing_status, display_document
 from fonts import FontLibrary
 from animation import _glyph_layout
 from text_effects import TEXT_EFFECTS
-from settings import resource_path, ANIMATION_STYLES
+from settings import resource_path, ANIMATION_STYLES, display_mode
 from glyph_motion import glyph_states
 from presets import PresetStore, EFFECT_KEYS
 from app_info import APP_NAME, APP_VERSION, CREATOR, MOTTO, EFFECT_PREVIEW_TEXT
+from screens import screen_key
 from themes import theme_colors, theme_stylesheet, theme_palette, theme_accent, accent_text, ThemeFrame, ThemeCanvas
 
 
@@ -134,6 +136,30 @@ class ElidedLabel(QLabel):
                                                        self.contentsRect().width()))
 
 
+class QComboBox(QtComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class QSpinBox(QtSpinBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class QSlider(QtSlider):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class LanguageCombo(QComboBox):
+    """Language selection; legacy setters keep older smoke scripts usable."""
+    def setChecked(self, checked):
+        self.setCurrentIndex(self.findData("bilingual_original" if checked else "original"))
+
+    def isChecked(self):
+        return self.currentData() != "original"
+
+
 class ThinSlider(QSlider):
     """Flat tracks with QSlider's native input, keyboard and accessibility behavior."""
     display_only = False
@@ -204,7 +230,7 @@ class FontPreview(QWidget):
         self.dark = True
         self._key = None
         self._surface = None
-        self._running = prefs.animation_style != "classic" or prefs.singing_sync
+        self._running = prefs.animation_style != "classic" or prefs.singing_sync or prefs.scramble_exit
         self._position = 0
         self._elapsed = QElapsedTimer()
         self.timer = QTimer(self)
@@ -226,13 +252,22 @@ class FontPreview(QWidget):
         return (self._position + (self._elapsed.elapsed() if self.timer.isActive() else 0)) % (self._preview_item().end_ms + 400)
 
     def _preview_item(self):
-        end = 3800 if self.prefs.animation_style == "classic" else 3200 + min(600 * 100 / self.prefs.exit_speed, 4400 * .45)
+        end = 3800 if self.prefs.animation_style == "classic" and not self.prefs.scramble_exit else 3200 + min(600 * 100 / self.prefs.exit_speed, 4400 * .45)
         units = [index for index, char in enumerate(EFFECT_PREVIEW_TEXT) if char.isalnum()]
         words = tuple(TimedWord(round(800 + 2200 * order / len(units)),
                                 round(800 + 2200 * (order + 1) / len(units)), index, index + 1)
                       for order, index in enumerate(units))
-        return ActiveLine(0, EFFECT_PREVIEW_TEXT, 0, end, 1,
-                          min(700 * 100 / self.prefs.entry_speed, 3200 * .35), 3200, words)
+        line = LyricLine(0, EFFECT_PREVIEW_TEXT, words)
+        if display_mode(self.prefs).startswith("bilingual"):
+            import re
+            text = "Let's visit the library one day."
+            units = list(re.finditer(r"\S+", text))
+            words = tuple(TimedWord(round(800 + 2200 * i / len(units)), round(800 + 2200 * (i+1) / len(units)),
+                                    unit.start(), unit.end()) for i, unit in enumerate(units))
+            line = display_document(LyricDocument([LyricLine(0, text, words, EFFECT_PREVIEW_TEXT)], []),
+                                    mode=display_mode(self.prefs)).lines[0]
+        return ActiveLine(0, line.text, 0, end, 1,
+                          min((300 if self.prefs.animation_style == "classic" else 700) * 100 / self.prefs.entry_speed, 3200 * .35), 3200, line.words, line.secondary_start)
 
     def _stop_preview(self):
         self._position = self._preview_position()
@@ -263,16 +298,18 @@ class FontPreview(QWidget):
         painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 8, 8)
         pixels = min(28, self.prefs.font_size)
         key = (self.width(), pixels, self.prefs.font_family, self.prefs.color, self.prefs.text_style, self.prefs.glow_variant,
-               self.devicePixelRatioF(), self.prefs.animation_style, self.prefs.jump, self.prefs.fall_distance, self.prefs.singing_sync)
+               self.devicePixelRatioF(), self.prefs.animation_style, self.prefs.jump, self.prefs.fall_distance, self.prefs.singing_sync,
+               self.prefs.gradient_colors, self.prefs.gradient_direction, display_mode(self.prefs), self.prefs.scramble_exit)
         if key != self._key:
-            glyphs, _, _ = _glyph_layout(EFFECT_PREVIEW_TEXT, pixels,
-                                         max(1, self.width() - 48), self.prefs.font_family)
+            item = self._preview_item()
+            glyphs, _, _ = _glyph_layout(item.text, pixels,
+                                         max(1, self.width() - 48), self.prefs.font_family, item.secondary_start, display_mode(self.prefs) == "bilingual_translation")
             self._surface = TEXT_EFFECTS.prepare(glyphs, pixels, self.prefs, self.devicePixelRatioF(), self.prefs.jump)
             self._key = key
         position = self._preview_position()
         states = (glyph_states(self._surface.glyphs, self.prefs,
                               self._preview_item(), position, .5, pixels, 730)
-                  if self.prefs.animation_style != "classic" or self.prefs.singing_sync else None)
+                  if self.prefs.animation_style != "classic" or self.prefs.singing_sync or self._preview_item().secondary_start >= 0 or self.prefs.scramble_exit else None)
         image = TEXT_EFFECTS.render(self._surface, self.prefs, states=states)
         width = 2 * max(abs(self._surface.origin.x()), abs(self._surface.origin.x() + image.width() / image.devicePixelRatio()))
         height = 2 * max(abs(self._surface.origin.y()), abs(self._surface.origin.y() + image.height() / image.devicePixelRatio()))
@@ -281,7 +318,7 @@ class FontPreview(QWidget):
         painter.scale(scale, scale)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         opacity = self.prefs.opacity / 100
-        if self._running and self.prefs.animation_style == "classic":
+        if self._running and self.prefs.animation_style == "classic" and not self.prefs.scramble_exit:
             opacity *= max(0, min(1, position / min(300 * 100 / self.prefs.entry_speed, 1900),
                                  (3800 - position) / min(600 * 100 / self.prefs.exit_speed, 1900)))
         painter.setOpacity(opacity)
@@ -625,6 +662,15 @@ class ControlPanel(QWidget):
         self.native_sync_checkbox.setChecked(self.prefs.native_line_sync)
         self.native_sync_checkbox.setToolTip("跟随网易云的播放时钟，新句到点立即可见；保留倾斜、律动与退场。关闭后恢复完整入场动画。同步偏移仍可手动微调。")
         self.native_sync_checkbox.toggled.connect(lambda value: self._set_preference("native_line_sync", value))
+        self.screen_combo = QComboBox()
+        self.screen_combo.setAccessibleName("歌词显示屏幕")
+        self.screen_combo.setToolTip("所选显示器断开时暂用主屏，重连后自动恢复。显示屏幕不随效果预设切换。")
+        self._reload_screens()
+        self.screen_combo.currentIndexChanged.connect(lambda _: self._set_preference("display_screen", self.screen_combo.currentData()))
+        app = QApplication.instance()
+        app.screenAdded.connect(self._reload_screens)
+        app.screenRemoved.connect(self._reload_screens)
+        app.primaryScreenChanged.connect(self._reload_screens)
         self.motion = QComboBox()
         self.motion.addItem("跟随音乐强弱", "audio")
         self.motion.addItem("轻波浪", "wave")
@@ -636,6 +682,9 @@ class ControlPanel(QWidget):
         self.animation_combo.setCurrentIndex(self.animation_combo.findData(self.prefs.animation_style))
         self.animation_combo.setAccessibleName("歌词动画")
         self.animation_combo.currentIndexChanged.connect(lambda _: self._set_preference("animation_style", self.animation_combo.currentData()))
+        self.scramble_checkbox = QCheckBox("乱码退场 · 替代原退场效果")
+        self.scramble_checkbox.setChecked(self.prefs.scramble_exit)
+        self.scramble_checkbox.toggled.connect(lambda value: self._set_preference("scramble_exit", value))
         self.singing_checkbox = QCheckBox("开启逐字演唱强调")
         self.singing_checkbox.setChecked(self.prefs.singing_sync)
         self.singing_checkbox.setAccessibleName("逐字演唱同步")
@@ -683,14 +732,33 @@ class ControlPanel(QWidget):
         self.text_style = QComboBox()
         self.text_style.addItem("白芯发光", "glow")
         self.text_style.addItem("经典纯色", "solid")
+        self.text_style.addItem("渐变字芯", "gradient_fill")
         self.text_style.setCurrentIndex(self.text_style.findData(self.prefs.text_style))
         self.text_style.currentIndexChanged.connect(lambda _: self._set_preference("text_style", self.text_style.currentData()))
         self.glow_variant = QComboBox()
         self.glow_variant.addItem("标准白芯", "standard")
         self.glow_variant.addItem("卡门的声音", "carmen")
+        self.glow_variant.addItem("渐变描边", "gradient")
         self.glow_variant.setCurrentIndex(self.glow_variant.findData(self.prefs.glow_variant))
         self.glow_variant.setAccessibleName("白芯发光风格")
         self.glow_variant.currentIndexChanged.connect(lambda _: self._set_preference("glow_variant", self.glow_variant.currentData()))
+        self.gradient_field = QWidget()
+        gradient_row = QHBoxLayout(self.gradient_field)
+        gradient_row.setContentsMargins(0, 0, 0, 0)
+        self.gradient_buttons = []
+        for index, title in enumerate(("起始色", "中间色", "结束色")):
+            button = QPushButton(title)
+            button.setAccessibleName(title)
+            button.clicked.connect(lambda _, i=index: self.choose_gradient_color(i))
+            self.gradient_buttons.append(button)
+            gradient_row.addWidget(button)
+        self.gradient_middle = QCheckBox("中间色")
+        self.gradient_middle.toggled.connect(self._gradient_middle_changed)
+        gradient_row.addWidget(self.gradient_middle)
+        self.gradient_direction = QComboBox()
+        for title, value in (("从左到右", "horizontal"), ("从上到下", "vertical"), ("左上到右下", "diagonal")):
+            self.gradient_direction.addItem(title, value)
+        self.gradient_direction.currentIndexChanged.connect(lambda _: self._set_preference("gradient_direction", self.gradient_direction.currentData()))
         self.glow_slider = QSlider(Qt.Orientation.Horizontal)
         self.glow_slider.setRange(0, 100)
         self.glow_slider.setValue(self.prefs.glow_strength)
@@ -729,20 +797,29 @@ class ControlPanel(QWidget):
         self.font_status = label(self._font_message or ("部分导入字体无法加载，可重新导入。" if self.font_library.errors else
                                  "列出本机字体；支持导入 TTF、OTF、TTC，选择后立即生效并自动保存。"), "muted")
         self.font_status.setWordWrap(True)
-        self.translation_checkbox = QCheckBox("原文与中文翻译上下同时显示")
-        self.translation_checkbox.setChecked(self.prefs.prefer_translation)
-        self.translation_checkbox.setToolTip("原文在上、较小的译文在下（原文字号的75%）；无翻译时只显示原文。整组保留倾斜和动画，原文逐字强调、译文整句同步。")
-        self.translation_checkbox.toggled.connect(lambda value: self._set_preference("prefer_translation", value))
+        self.translation_checkbox = LanguageCombo()
+        self.language_combo = self.translation_checkbox
+        for title, mode in (("原文", "original"), ("中文优先", "translation"), ("双语 · 原文在上", "bilingual_original"), ("双语 · 译文在上", "bilingual_translation")):
+            self.language_combo.addItem(title, mode)
+        self.language_combo.setCurrentIndex(self.language_combo.findData(display_mode(self.prefs)))
+        self.language_combo.setAccessibleName("歌词显示语言")
+        self.language_combo.setToolTip("双语原文保持设置字号，译文为原文的 75%；可选择上下顺序。无译文显示原文，译文按整句同步。")
+        self.language_combo.currentIndexChanged.connect(lambda _: self._set_preference("lyric_display_mode", self.language_combo.currentData()))
+        self.instrumental_checkbox = QCheckBox("纯音乐时不显示歌词或提示")
+        self.instrumental_checkbox.setChecked(self.prefs.hide_instrumental)
+        self.instrumental_checkbox.setToolTip("隐藏明确的纯音乐标记／提示；不根据歌曲名称或暂未获取歌词来猜测。")
+        self.instrumental_checkbox.toggled.connect(lambda value: self._set_preference("hide_instrumental", value))
         self._reload_fonts()
         self.font_combo.currentIndexChanged.connect(self._font_selected)
         for title, fields in (
-            ("显示与文字", (("显示区域", self.region), ("位置与范围", self.region_editor_button),
-                          ("歌词字体", font_field), ("文字样式", self.text_style),
+            ("显示与文字", (("显示屏幕", self.screen_combo), ("显示区域", self.region), ("位置与范围", self.region_editor_button), ("歌词字体", font_field), ("文字样式", self.text_style),
                           ("发光风格", self.glow_variant),
+                          ("渐变颜色", self.gradient_field), ("渐变方向", self.gradient_direction),
                           ("文字大小", self.spins["font_size"]),
                           (self.color_label, self.color_button), ("发光强度", self.glow_field),
-                          ("歌词透明度", self.spins["opacity"]), ("歌词语言", self.translation_checkbox))),
+                          ("歌词透明度", self.spins["opacity"]), ("歌词语言", self.translation_checkbox), ("纯音乐显示", self.instrumental_checkbox))),
             ("律动与同步", (("歌词动画", self.animation_combo),
+                          ("乱码退场", self.scramble_checkbox),
                           ("入场速度", self.parameter_fields["entry_speed"]), ("退场速度", self.parameter_fields["exit_speed"]),
                           ("抖动频率", self.parameter_fields["shake_frequency"]), ("跌落距离（32px 字号）", self.parameter_fields["fall_distance"]),
                           ("预览背景", self.preview_background), ("效果预览", self.font_preview), ("动画预览", self.replay_button),
@@ -1055,6 +1132,10 @@ class ControlPanel(QWidget):
 
     def _set_preference(self, key, value):
         setattr(self.prefs, key, value)
+        if key == "lyric_display_mode":
+            self.prefs.prefer_translation = value != "original"
+        elif key == "prefer_translation":
+            self.prefs.lyric_display_mode = "bilingual_original" if value else "original"
         if key in EFFECT_KEYS and self._preset_id:
             self._preset_modified = True
             self._reload_presets()
@@ -1062,31 +1143,70 @@ class ControlPanel(QWidget):
         self.overlay.refresh_preferences()
         self._update_effect_controls()
         self.font_preview.update()
-        if key in ("animation_style", "entry_speed", "exit_speed", "shake_frequency", "fall_distance", "singing_sync"):
+        if key in ("animation_style", "entry_speed", "exit_speed", "shake_frequency", "fall_distance", "singing_sync", "lyric_display_mode", "scramble_exit"):
             self.font_preview.replay()
 
     def _update_effect_controls(self):
-        glowing = self.prefs.text_style == "glow"
-        carmen = glowing and self.prefs.glow_variant == "carmen"
-        self.glow_variant.setEnabled(glowing)
-        self.color_button.setEnabled(not carmen)
+        glowing = self.prefs.text_style != "solid"
+        carmen = self.prefs.text_style == "glow" and self.prefs.glow_variant == "carmen"
+        gradient = self.prefs.text_style == "gradient_fill" or (self.prefs.text_style == "glow" and self.prefs.glow_variant == "gradient")
+        self.glow_variant.setEnabled(self.prefs.text_style == "glow")
+        self.color_button.setEnabled(not carmen and not (self.prefs.text_style == "glow" and gradient))
+        self.gradient_field.setEnabled(gradient)
+        self.gradient_direction.setEnabled(gradient)
+        blocker = QSignalBlocker(self.gradient_direction)
+        self.gradient_direction.setCurrentIndex(self.gradient_direction.findData(self.prefs.gradient_direction))
+        del blocker
+        colors = json.loads(self.prefs.gradient_colors)
+        blocker = QSignalBlocker(self.gradient_middle)
+        self.gradient_middle.setChecked(len(colors) == 3)
+        del blocker
+        self.gradient_buttons[1].setEnabled(len(colors) == 3)
+        for button, color in zip(self.gradient_buttons, (colors[0], colors[1] if len(colors) == 3 else "#b6a0ee", colors[-1])):
+            button.setStyleSheet(f"border:2px solid {color};")
         self.white_hint.setText("卡门的声音：固定暖白字芯与琥珀金光晕，发光强度可调。" if carmen else
-                                "字芯固定白色，描边与光晕使用所选颜色。")
+                                "字芯使用渐变，描边与光晕使用单色。" if self.prefs.text_style == "gradient_fill" else
+                                "字芯固定白色，描边与光晕使用渐变。" if gradient else "字芯固定白色，描边与光晕使用所选颜色。")
         self.color_label.setText("描边颜色" if glowing else "文字颜色")
         self.color_button.setToolTip("选择描边和光晕颜色" if glowing else "选择文字填充颜色")
         self.white_hint.setVisible(glowing)
         self.glow_slider.setEnabled(glowing)
         self.glow_value.setText(f"{self.prefs.glow_strength}%")
         self.parameter_fields["shake_frequency"].setEnabled(self.prefs.animation_style.endswith("_shake"))
-        self.parameter_fields["fall_distance"].setEnabled(self.prefs.animation_style.startswith("fall_"))
+        self.parameter_fields["fall_distance"].setEnabled(self.prefs.animation_style.startswith("fall_") and not self.prefs.scramble_exit)
         self._refresh_word_status()
+
+    def _gradient_middle_changed(self, checked):
+        colors = json.loads(self.prefs.gradient_colors)
+        values = [colors[0], "#b6a0ee", colors[-1]] if checked else [colors[0], colors[-1]]
+        self._set_preference("gradient_colors", json.dumps(values))
+
+    def _reload_screens(self, *_):
+        blocker = QSignalBlocker(self.screen_combo)
+        self.screen_combo.clear()
+        self.screen_combo.addItem("主屏幕（自动跟随）", "primary")
+        for index, screen in enumerate(QApplication.screens()):
+            area = screen.geometry()
+            primary = " · 主屏" if screen is QApplication.primaryScreen() else ""
+            self.screen_combo.addItem(f"显示器 {index+1} · {screen.name()} · {area.width()}×{area.height()}{primary}", screen_key(screen))
+        if self.screen_combo.findData(self.prefs.display_screen) < 0:
+            self.screen_combo.addItem("所选显示器已断开 · 暂用主屏", self.prefs.display_screen)
+        self.screen_combo.setCurrentIndex(self.screen_combo.findData(self.prefs.display_screen))
+
+    def choose_gradient_color(self, index):
+        colors = json.loads(self.prefs.gradient_colors)
+        slot = len(colors) - 1 if index == 2 else index
+        color = QColorDialog.getColor(QColor(colors[slot]), self, "选择渐变颜色")
+        if color.isValid():
+            colors[slot] = color.name()
+            self._set_preference("gradient_colors", json.dumps(colors))
 
     def _refresh_word_status(self):
         waiting = not getattr(self.player, "lyrics_received", False) if self.external else self.player.path is None
-        displayed = display_document(self.overlay.document, self.prefs.prefer_translation)
-        translated = bool(displayed and self.prefs.prefer_translation and any(
+        displayed = display_document(self.overlay.document, mode=display_mode(self.prefs))
+        translated = bool(displayed and display_mode(self.prefs) != "original" and any(
             a.text != b.text for a, b in zip(displayed.lines, self.overlay.document.lines)))
-        status = word_timing_status(self.overlay.document, waiting)
+        status = word_timing_status(self.overlay.document if display_mode(self.prefs).startswith("bilingual") else displayed, waiting)
         self.word_status.setText(status + " · 中文译文按整句同步" if translated else status)
 
     def _reload_presets(self):
@@ -1107,7 +1227,7 @@ class ControlPanel(QWidget):
 
     def _sync_effect_widgets(self):
         widgets = [self.animation_combo, self.text_style, self.glow_variant, self.motion, self.font_combo, self.glow_slider,
-                   self.singing_checkbox, self.translation_checkbox, self.theme_combo,
+                   self.singing_checkbox, self.translation_checkbox, self.theme_combo, self.scramble_checkbox, self.instrumental_checkbox,
                    *self.spins.values(), *self.parameter_sliders.values()]
         blockers = [QSignalBlocker(widget) for widget in widgets]
         for widget, key in ((self.animation_combo, "animation_style"), (self.text_style, "text_style"),
@@ -1119,7 +1239,9 @@ class ControlPanel(QWidget):
             slider.setValue(getattr(self.prefs, key))
         self.glow_slider.setValue(self.prefs.glow_strength)
         self.singing_checkbox.setChecked(self.prefs.singing_sync)
-        self.translation_checkbox.setChecked(self.prefs.prefer_translation)
+        self.scramble_checkbox.setChecked(self.prefs.scramble_exit)
+        self.instrumental_checkbox.setChecked(self.prefs.hide_instrumental)
+        self.language_combo.setCurrentIndex(self.language_combo.findData(display_mode(self.prefs)))
         self.theme_combo.setCurrentIndex(self.theme_combo.findData(self.prefs.theme))
         if self.styleSheet() != theme_stylesheet(self.prefs.theme):
             self._apply_theme()

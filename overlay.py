@@ -5,11 +5,12 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 from animation import build_layout, display_regions
 from lrc import LyricTimeline, LyricDocument, display_document
-from settings import Preferences
+from settings import Preferences, display_mode
 from text_effects import TEXT_EFFECTS
 from glyph_motion import glyph_states
 from app_info import APP_NAME
 from regions import selected_regions
+from screens import select_screen
 
 
 class LyricsOverlay(QWidget):
@@ -35,8 +36,11 @@ class LyricsOverlay(QWidget):
         self.layouts = {}
         self.seed = random.randrange(1_000_000)
         self._screen = None
-        self._bind_screen(QApplication.primaryScreen())
-        QApplication.instance().primaryScreenChanged.connect(self._bind_screen)
+        self.refresh_screen()
+        app = QApplication.instance()
+        app.primaryScreenChanged.connect(self.refresh_screen)
+        app.screenAdded.connect(self.refresh_screen)
+        app.screenRemoved.connect(self.refresh_screen)
         player.discontinuity.connect(self.clear_layouts)
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -52,15 +56,22 @@ class LyricsOverlay(QWidget):
                 pass
         self._screen = screen
         if screen:
+            if self.windowHandle():
+                self.windowHandle().setScreen(screen)
             screen.availableGeometryChanged.connect(self._screen_changed)
             self._screen_changed()
+
+    def refresh_screen(self, *_):
+        screen = select_screen(QApplication.screens(), QApplication.primaryScreen(), self.prefs.display_screen)
+        if screen is not self._screen:
+            self._bind_screen(screen)
 
     def _screen_changed(self, *_):
         self.setGeometry(self._screen.availableGeometry())
         self.clear_layouts()
 
     def set_document(self, document: LyricDocument | None):
-        displayed = display_document(document, self.prefs.prefer_translation)
+        displayed = display_document(document, mode=display_mode(self.prefs), hide_instrumental=self.prefs.hide_instrumental)
         same_text = bool(displayed and self.display_document and [(line.start_ms, line.text) for line in displayed.lines]
                          == [(line.start_ms, line.text) for line in self.display_document.lines])
         self.document = document
@@ -72,15 +83,15 @@ class LyricsOverlay(QWidget):
         self._sync_timer()
 
     def refresh_preferences(self):
-        self.display_document = display_document(self.document, self.prefs.prefer_translation)
-        if self.document:
-            self.timeline = self._timeline(self.display_document)
+        self.refresh_screen()
+        self.display_document = display_document(self.document, mode=display_mode(self.prefs), hide_instrumental=self.prefs.hide_instrumental)
+        self.timeline = self._timeline(self.display_document) if self.display_document else None
         self.clear_layouts()
 
     def _timeline(self, document):
         delay = self.prefs.delay_ms - getattr(self.player, "lyric_offset_ms", 0)
         return LyricTimeline(document, delay, self.prefs.animation_style,
-                             self.prefs.entry_speed, self.prefs.exit_speed,
+                             self.prefs.entry_speed, self.prefs.exit_speed, self.prefs.scramble_exit,
                              align_boundaries=(self.prefs.native_line_sync
                                  and getattr(self.player, "is_external", False)
                                  and getattr(self.player, "source_id", "netease") == "netease"))
@@ -153,10 +164,8 @@ class LyricsOverlay(QWidget):
             regions = display_regions(self.width(), self.height(), self.prefs.region, sentence_index, self.prefs)
             choices = selected_regions(self.prefs.selected_regions)
             anchor = choices[sentence_index % len(choices)] if self.prefs.region == "custom" else None
-            original = self.document.lines[item.index]
-            translation_start = len(original.text) + 1 if item.text != original.text else None
             layout = build_layout(item.text, self.seed + item.index * 7919, regions, occupied,
-                                  self.prefs, translation_start, anchor)
+                                  self.prefs, item.secondary_start, anchor)
             if layout:
                 self.layouts[item.index] = layout
         energy = self.player.energy_at(position)
@@ -176,7 +185,7 @@ class LyricsOverlay(QWidget):
             remaining = item.end_ms - position
             drift = (8 * (1 - min(1, remaining / (600 * 100 / self.prefs.exit_speed)))
                      - 5 * (1 - min(1, age / (300 * 100 / self.prefs.entry_speed))))
-            if self.prefs.animation_style != "classic" or layout.clip_rect is not None:
+            if self.prefs.animation_style != "classic" or self.prefs.scramble_exit or layout.clip_rect is not None:
                 drift = 0
             painter.save()
             painter.setOpacity(item.opacity * self.prefs.opacity / 100)
@@ -190,7 +199,7 @@ class LyricsOverlay(QWidget):
                                                       self.devicePixelRatioF(), self.prefs.jump, layout.angle, layout.clip_rect)
             states = (glyph_states(layout.glyphs, self.prefs, item, position, energy, layout.font_size,
                                    self.seed + item.index * 7919, layout.angle)
-                      if self.prefs.animation_style != "classic" or self.prefs.singing_sync or layout.clip_rect is not None else None)
+                      if self.prefs.animation_style != "classic" or self.prefs.singing_sync or item.secondary_start >= 0 or self.prefs.scramble_exit or layout.clip_rect is not None else None)
             if layout.clip_rect is not None:
                 next_start = (self.timeline.lines[item.index+1].start_ms
                               if item.index+1 < len(self.timeline.lines) else self.player.duration)

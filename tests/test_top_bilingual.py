@@ -20,7 +20,7 @@ class TopBilingualTests(unittest.TestCase):
                                  LyricLine(5000, "相同", (), "相同")], [])
         lines = display_document(document, True).lines
         self.assertEqual([line.text for line in lines], ["Hello\n你好", "No translation", "相同"])
-        glyphs, _, _ = _glyph_layout(lines[0].text, 32, 700, translation_start=6)
+        glyphs, _, _ = _glyph_layout(lines[0].text, 32, 700, secondary_start=6)
         original = [g for g in glyphs if g.text_start < 5]
         translated = [g for g in glyphs if g.text_start > 5]
         self.assertLess(max(g.baseline for g in original), min(g.baseline for g in translated))
@@ -35,7 +35,7 @@ class TopBilingualTests(unittest.TestCase):
                 for index in range(4):
                     regions = display_regions(width, height, prefs.region, index)
                     layout = build_layout("This is the original lyric\n这是对应的中文歌词翻译", 17,
-                                          regions, [], prefs, translation_start=len("This is the original lyric") + 1)
+                                          regions, [], prefs, secondary_start=len("This is the original lyric") + 1)
                     self.assertIsNotNone(layout)
                     self.assertTrue(regions[0].adjusted(-1e-6, -1e-6, 1e-6, 1e-6).contains(layout.bounds))
                     self.assertLessEqual(layout.bounds.bottom(), height * .32 + 0.01)
@@ -49,7 +49,7 @@ class TopBilingualTests(unittest.TestCase):
             angles = []
             for seed in range(6):
                 regions = display_regions(1536, 960, prefs.region, seed)
-                layout = build_layout("Original lyric\n中文翻译", seed, regions, [], prefs, translation_start=15)
+                layout = build_layout("Original lyric\n中文翻译", seed, regions, [], prefs, secondary_start=15)
                 self.assertIsNotNone(layout)
                 self.assertLessEqual(abs(layout.angle), maximum)
                 self.assertTrue(regions[0].adjusted(-1e-6, -1e-6, 1e-6, 1e-6).contains(layout.bounds))
@@ -61,7 +61,7 @@ class TopBilingualTests(unittest.TestCase):
                 self.assertEqual(angles, [0] * 6)
 
     def test_translation_is_smaller_and_multiline_original_keeps_its_size(self):
-        glyphs, _, _ = _glyph_layout("中\n中\n中", 32, 700, translation_start=4)
+        glyphs, _, _ = _glyph_layout("中\n中\n中", 32, 700, secondary_start=4)
         self.assertEqual(glyphs[0].path.boundingRect().height(), glyphs[1].path.boundingRect().height())
         ratio = glyphs[2].path.boundingRect().height() / glyphs[0].path.boundingRect().height()
         self.assertAlmostEqual(ratio, .75, delta=.03)
